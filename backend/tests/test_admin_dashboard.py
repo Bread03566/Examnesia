@@ -5,7 +5,7 @@ from app import cli
 from app.database import SessionLocal
 from app.main import app
 from app.models.models import AuditLog, Document, User
-from tests.helpers import STRONG_PASSWORD, post_refresh, register_user, unique_username
+from tests.helpers import STRONG_PASSWORD, post_refresh, register_user, unique_email, unique_username
 
 
 @pytest.fixture
@@ -25,7 +25,7 @@ def db():
 def admin(client, db):
     username = unique_username("adm")
     cli.create_admin(db, username, "Site Admin", STRONG_PASSWORD)
-    res = client.post("/api/auth/login", json={"username": username, "password": STRONG_PASSWORD})
+    res = client.post("/api/auth/login", json={"email": username, "password": STRONG_PASSWORD})
     assert res.status_code == 200
     return {"Authorization": f"Bearer {res.json()['access_token']}"}, username, res.json()["user"]
 
@@ -61,9 +61,9 @@ def test_overview_counts_students_and_content(client, db, admin):
 
 def test_student_list_shows_metadata_only_and_supports_search(client, admin):
     headers, _, _ = admin
-    name = unique_username("findme")
+    name = unique_email("findme")
     register_user(client, username=name, display_name="Zed Searchable")
-    rows = client.get("/api/admin/students", params={"q": name[:-2]}, headers=headers).json()["students"]
+    rows = client.get("/api/admin/students", params={"q": name.split("@")[0][:-2]}, headers=headers).json()["students"]
     assert [r["username"] for r in rows] == [name]
     row = rows[0]
     assert set(row) == {"id", "username", "display_name", "role", "is_active", "created_at",
@@ -80,10 +80,10 @@ def test_deactivate_blocks_login_and_kills_sessions_and_reactivate_restores(clie
 
     assert client.post(f"/api/admin/students/{pid}/deactivate", headers=headers).status_code == 204
     assert client.get("/api/auth/me", headers=s_headers).status_code in (401, 403)
-    assert client.post("/api/auth/login", json={"username": s_name, "password": STRONG_PASSWORD}).status_code == 403
+    assert client.post("/api/auth/login", json={"email": s_name, "password": STRONG_PASSWORD}).status_code == 403
 
     assert client.post(f"/api/admin/students/{pid}/reactivate", headers=headers).status_code == 204
-    assert client.post("/api/auth/login", json={"username": s_name, "password": STRONG_PASSWORD}).status_code == 200
+    assert client.post("/api/auth/login", json={"email": s_name, "password": STRONG_PASSWORD}).status_code == 200
 
 
 def test_admin_cannot_deactivate_themselves_or_another_admin_or_unknown_ids(client, db, admin):
@@ -114,7 +114,7 @@ def test_admin_writes_are_audited_without_secrets(client, db, admin):
 def test_deactivated_students_old_refresh_cookie_stops_working(client, db, admin):
     headers, _, _ = admin
     res = client.post("/api/auth/register", json={
-        "display_name": "Cookie Kid", "username": unique_username(), "password": STRONG_PASSWORD,
+        "display_name": "Cookie Kid", "email": unique_email(), "password": STRONG_PASSWORD,
         "confirm_password": STRONG_PASSWORD})
     pid = res.json()["user"]["public_id"]
     token = next(v for k, v in client.cookies.items() if k.endswith("kabisado_rt"))

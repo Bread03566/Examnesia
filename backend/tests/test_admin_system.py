@@ -22,7 +22,7 @@ def admin(client):
     with SessionLocal() as db:
         name = unique_username("adm")
         cli.create_admin(db, name, "Admin", STRONG_PASSWORD)
-    tok = client.post("/api/auth/login", json={"username": name, "password": STRONG_PASSWORD}).json()["access_token"]
+    tok = client.post("/api/auth/login", json={"email": name, "password": STRONG_PASSWORD}).json()["access_token"]
     return {"Authorization": f"Bearer {tok}"}
 
 

@@ -4,11 +4,24 @@ import unicodedata
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 USERNAME_RE = re.compile(r"^[a-z0-9_.]{3,32}$")
+GMAIL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9._+-]{0,62}[a-z0-9])?@gmail\.com$")
+RESET_CODE_RE = re.compile(r"^\d{6}$")
 
 
 def normalize_username(raw: str) -> str:
     """NFKC folds look-alikes (full-width letters, etc.) so they cannot create a second account."""
     return unicodedata.normalize("NFKC", raw).strip().lower()
+
+
+def normalize_email(raw: str) -> str:
+    return normalize_username(raw)
+
+
+def is_valid_gmail(value: str) -> bool:
+    if not GMAIL_RE.match(value):
+        return False
+    local = value.split("@", 1)[0]
+    return ".." not in local
 
 
 class _Strict(BaseModel):
@@ -17,7 +30,7 @@ class _Strict(BaseModel):
 
 class RegisterRequest(_Strict):
     display_name: str = Field(max_length=120)
-    username: str = Field(max_length=64)
+    email: str = Field(max_length=100)
     password: str = Field(max_length=128)
     confirm_password: str = Field(max_length=128)
 
@@ -31,12 +44,12 @@ class RegisterRequest(_Strict):
             raise ValueError("Display name contains invalid characters.")
         return v
 
-    @field_validator("username")
+    @field_validator("email")
     @classmethod
-    def clean_username(cls, v: str) -> str:
-        v = normalize_username(v)
-        if not USERNAME_RE.match(v):
-            raise ValueError("Username must be 3 to 32 characters: letters, numbers, underscore or dot.")
+    def clean_email(cls, v: str) -> str:
+        v = normalize_email(v)
+        if not is_valid_gmail(v):
+            raise ValueError("Please use a valid @gmail.com address.")
         return v
 
     @model_validator(mode="after")
@@ -47,17 +60,62 @@ class RegisterRequest(_Strict):
 
 
 class LoginRequest(_Strict):
-    username: str = Field(max_length=64)
+    # Accepts @gmail.com for students and also legacy usernames for existing admin accounts.
+    email: str = Field(max_length=100)
     password: str = Field(max_length=128)
 
-    @field_validator("username")
+    @field_validator("email")
     @classmethod
-    def clean_username(cls, v: str) -> str:
-        return normalize_username(v)
+    def clean_email(cls, v: str) -> str:
+        v = normalize_email(v)
+        if not v:
+            raise ValueError("Please enter your Gmail address.")
+        return v
+
+
+class ForgotPasswordRequest(_Strict):
+    email: str = Field(max_length=100)
+
+    @field_validator("email")
+    @classmethod
+    def clean_email(cls, v: str) -> str:
+        v = normalize_email(v)
+        if not is_valid_gmail(v):
+            raise ValueError("Please enter a valid @gmail.com address.")
+        return v
+
+
+class ResetPasswordRequest(_Strict):
+    email: str = Field(max_length=100)
+    code: str = Field(max_length=16)
+    new_password: str = Field(max_length=128)
+    confirm_password: str = Field(max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def clean_email(cls, v: str) -> str:
+        v = normalize_email(v)
+        if not is_valid_gmail(v):
+            raise ValueError("Please enter a valid @gmail.com address.")
+        return v
+
+    @field_validator("code")
+    @classmethod
+    def clean_code(cls, v: str) -> str:
+        digits = "".join(ch for ch in v if ch not in " -\t\r\n")
+        if not RESET_CODE_RE.match(digits):
+            raise ValueError("Reset code must be 6 digits.")
+        return digits
+
+    @model_validator(mode="after")
+    def passwords_match(self):
+        if self.new_password != self.confirm_password:
+            raise ValueError("Passwords do not match.")
+        return self
 
 
 class RecoverRequest(_Strict):
-    username: str = Field(max_length=64)
+    username: str = Field(max_length=100)
     recovery_code: str = Field(max_length=64)
     new_password: str = Field(max_length=128)
     confirm_password: str = Field(max_length=128)
@@ -90,7 +148,7 @@ class TokenResponse(BaseModel):
 
 
 class RecoveryTokenResponse(TokenResponse):
-    recovery_code: str  # shown exactly once
+    recovery_code: str  # shown exactly once (admin CLI / recovery-code flow)
 
 
 class ChangePasswordRequest(_Strict):

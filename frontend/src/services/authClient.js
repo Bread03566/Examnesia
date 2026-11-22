@@ -105,32 +105,36 @@ async function authFetch(url, options = {}) {
 }
 
 const authClient = {
-  async register({ displayName, username, password, confirmPassword }) {
+  async register({ displayName, email, password, confirmPassword }) {
     const data = await postJson("/api/auth/register", {
       display_name: displayName,
-      username,
+      email,
       password,
       confirm_password: confirmPassword,
     });
     setSession(data.access_token, data.user);
-    return { user: data.user, recoveryCode: data.recovery_code };
+    return { user: data.user };
   },
 
-  async login({ username, password }) {
-    const data = await postJson("/api/auth/login", { username, password });
+  async login({ email, password }) {
+    const data = await postJson("/api/auth/login", { email, password });
     setSession(data.access_token, data.user);
     return data.user;
   },
 
-  async recover({ username, recoveryCode, newPassword, confirmPassword }) {
-    const data = await postJson("/api/auth/recover", {
-      username,
-      recovery_code: recoveryCode,
+  async forgotPassword({ email }) {
+    return postJson("/api/auth/forgot-password", { email });
+  },
+
+  async resetPassword({ email, code, newPassword, confirmPassword }) {
+    const data = await postJson("/api/auth/reset-password", {
+      email,
+      code,
       new_password: newPassword,
       confirm_password: confirmPassword,
     });
     setSession(data.access_token, data.user);
-    return { user: data.user, recoveryCode: data.recovery_code };
+    return { user: data.user };
   },
 
   async logout() {

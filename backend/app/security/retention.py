@@ -8,14 +8,16 @@ import datetime
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
-from app.models.models import LoginAttempt, UserSession
+from app.models.models import LoginAttempt, PasswordResetCode, UserSession
 
 RETENTION = datetime.timedelta(days=30)
+RESET_RETENTION = datetime.timedelta(days=1)
 
 
 def purge_expired(db: Session, now: datetime.datetime | None = None) -> dict:
     now = now or datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     cutoff = now - RETENTION
+    reset_cutoff = now - RESET_RETENTION
     sessions = db.query(UserSession).filter(
         or_(
             UserSession.expires_at < cutoff,
@@ -29,5 +31,11 @@ def purge_expired(db: Session, now: datetime.datetime | None = None) -> dict:
             or_(LoginAttempt.locked_until.is_(None), LoginAttempt.locked_until < now),
         )
     ).delete(synchronize_session=False)
+    reset_codes = db.query(PasswordResetCode).filter(
+        or_(
+            PasswordResetCode.expires_at < reset_cutoff,
+            PasswordResetCode.used_at < reset_cutoff,
+        )
+    ).delete(synchronize_session=False)
     db.commit()
-    return {"sessions": sessions, "login_attempts": attempts}
+    return {"sessions": sessions, "login_attempts": attempts, "reset_codes": reset_codes}

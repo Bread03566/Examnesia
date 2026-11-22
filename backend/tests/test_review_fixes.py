@@ -13,7 +13,7 @@ from app.database import SessionLocal
 from app.main import app
 from app.models.models import Document, User
 from app.routers import auth as auth_router
-from tests.helpers import STRONG_PASSWORD, register_user, unique_username
+from tests.helpers import STRONG_PASSWORD, register_user, unique_email, unique_username
 from tests.test_api import make_doc
 
 
@@ -25,17 +25,17 @@ def client():
 
 # ---- C1: handlers must not block the event loop or hold a DB connection across a hash ----
 def test_auth_handlers_run_in_the_threadpool_not_on_the_event_loop():
-    for name in ("register", "login", "refresh", "logout", "recover", "me",
+    for name in ("register", "login", "forgot_password", "reset_password", "refresh", "logout", "recover", "me",
                  "change_password", "deactivate", "delete_account"):
         assert not inspect.iscoroutinefunction(getattr(auth_router, name)), name
 
 
 def test_many_simultaneous_logins_all_complete(client):
-    _, username, _ = register_user(client)
+    _, email, _ = register_user(client)
 
     def attempt(_):
         with TestClient(app) as c:
-            return c.post("/api/auth/login", json={"username": username, "password": STRONG_PASSWORD}).status_code
+            return c.post("/api/auth/login", json={"email": email, "password": STRONG_PASSWORD}).status_code
 
     with concurrent.futures.ThreadPoolExecutor(12) as pool:
         codes = list(pool.map(attempt, range(12)))
@@ -49,15 +49,15 @@ def test_registration_is_rate_limited_per_ip(client, monkeypatch):
     ip = f"198.51.100.{uuid.uuid4().int % 250 + 1}"
 
     def reg():
-        name = unique_username()
+        email = unique_email()
         return client.post("/api/auth/register", headers={"X-Forwarded-For": ip}, json={
-            "display_name": "X", "username": name, "password": STRONG_PASSWORD, "confirm_password": STRONG_PASSWORD})
+            "display_name": "X", "email": email, "password": STRONG_PASSWORD, "confirm_password": STRONG_PASSWORD})
 
     assert [reg().status_code for _ in range(3)] == [201, 201, 201]
     blocked = reg()
     assert blocked.status_code == 429 and int(blocked.headers["Retry-After"]) >= 1
     other = client.post("/api/auth/register", headers={"X-Forwarded-For": "203.0.113.250"}, json={
-        "display_name": "X", "username": unique_username(), "password": STRONG_PASSWORD, "confirm_password": STRONG_PASSWORD})
+        "display_name": "X", "email": unique_email(), "password": STRONG_PASSWORD, "confirm_password": STRONG_PASSWORD})
     assert other.status_code == 201  # a different IP is unaffected
 
 
@@ -98,12 +98,12 @@ def test_delete_account_never_deletes_files_outside_the_upload_directory(client,
 
 # ---- I4: a deactivated account can be brought back by the owner ----
 def test_cli_reactivate_lets_a_deactivated_student_log_in_again(client):
-    headers, username, _ = register_user(client)
+    headers, email, _ = register_user(client)
     assert client.post("/api/auth/deactivate", headers=headers, json={"password": STRONG_PASSWORD}).status_code == 204
-    assert client.post("/api/auth/login", json={"username": username, "password": STRONG_PASSWORD}).status_code == 403
+    assert client.post("/api/auth/login", json={"email": email, "password": STRONG_PASSWORD}).status_code == 403
     with SessionLocal() as db:
-        cli.reactivate(db, username.upper())
-    assert client.post("/api/auth/login", json={"username": username, "password": STRONG_PASSWORD}).status_code == 200
+        cli.reactivate(db, email.upper())
+    assert client.post("/api/auth/login", json={"email": email, "password": STRONG_PASSWORD}).status_code == 200
 
 
 def test_cli_reactivate_reports_unknown_users_and_main_wires_it(capsys):

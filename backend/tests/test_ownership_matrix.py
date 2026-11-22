@@ -14,6 +14,7 @@ from tests.test_api import make_doc
 PUBLIC = {
     ("GET", "/"), ("GET", "/api/health"),
     ("POST", "/api/auth/register"), ("POST", "/api/auth/login"), ("POST", "/api/auth/refresh"),
+    ("POST", "/api/auth/forgot-password"), ("POST", "/api/auth/reset-password"),
     ("POST", "/api/auth/recover"), ("POST", "/api/auth/logout"),
 }
 

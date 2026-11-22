@@ -6,17 +6,38 @@ import Mascot from '../components/Mascot';
 import { fieldForError } from '../services/fieldErrors';
 
 
-function TextField({ label, value, onChange, error, autoComplete, maxLength, hint }) {
-  const id = `f-${label.replace(/\W+/g, '').toLowerCase()}`;
+function TextField({
+  id,
+  name,
+  type = 'text',
+  label,
+  value,
+  onChange,
+  error,
+  autoComplete,
+  maxLength,
+  hint,
+  placeholder,
+  required = false,
+  spellCheck,
+  enterKeyHint,
+}) {
+  const fieldId = id || `f-${label.replace(/\W+/g, '').toLowerCase()}`;
   return (
     <div>
-      <label htmlFor={id} className="block text-xs font-bold text-slate-700 mb-1">{label}</label>
+      <label htmlFor={fieldId} className="block text-xs font-bold text-slate-700 mb-1">{label}</label>
       <input
-        id={id}
+        id={fieldId}
+        name={name || fieldId}
+        type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         autoComplete={autoComplete}
         maxLength={maxLength}
+        placeholder={placeholder}
+        required={required}
+        spellCheck={spellCheck}
+        enterKeyHint={enterKeyHint}
         aria-invalid={Boolean(error)}
         className={`w-full rounded-xl border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 ${
           error ? 'border-red-400 bg-red-50' : 'border-slate-300 bg-white'
@@ -27,11 +48,11 @@ function TextField({ label, value, onChange, error, autoComplete, maxLength, hin
   );
 }
 
-/** Login / register tabs. `gate` lets us keep the app hidden until a new recovery code has been saved. */
-export default function AuthView({ gate, onRecover, onPrivacy }) {
+/** Login / register tabs using Gmail + password. Existing admin usernames are also accepted on Log in. */
+export default function AuthView({ onRecover, onPrivacy }) {
   const [mode, setMode] = useState('login');
   const [displayName, setDisplayName] = useState('');
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [errors, setErrors] = useState({});
@@ -49,22 +70,25 @@ export default function AuthView({ gate, onRecover, onPrivacy }) {
     e.preventDefault();
     if (busy) return;
     const local = {};
-    if (isRegister && password !== confirm) local.confirm = 'The two passwords do not match.';
+    const trimmedEmail = email.trim().toLowerCase();
     if (isRegister && !displayName.trim()) local.displayName = 'Please enter your name.';
+    if (!trimmedEmail) {
+      local.email = 'Please enter your Gmail address.';
+    } else if (isRegister && !trimmedEmail.endsWith('@gmail.com')) {
+      local.email = 'Please use a valid @gmail.com address.';
+    }
+    if (isRegister && password !== confirm) local.confirm = 'The two passwords do not match.';
     if (Object.keys(local).length) return setErrors(local);
 
     setBusy(true);
     setErrors({});
-    if (isRegister) gate.hold(true); // keep the app hidden until the recovery code is saved
     try {
       if (isRegister) {
-        const { recoveryCode } = await authClient.register({ displayName, username, password, confirmPassword: confirm });
-        gate.showRecoveryCode(recoveryCode, username.trim().toLowerCase());
+        await authClient.register({ displayName, email: trimmedEmail, password, confirmPassword: confirm });
       } else {
-        await authClient.login({ username, password });
+        await authClient.login({ email: trimmedEmail, password });
       }
     } catch (err) {
-      if (isRegister) gate.hold(false);
       const wait = err.status === 429 && err.retryAfter ? ` Try again in ${err.retryAfter} seconds.` : '';
       setErrors({ [fieldForError(err)]: err.message + (err.status === 429 ? wait : '') });
     } finally {
@@ -98,16 +122,34 @@ export default function AuthView({ gate, onRecover, onPrivacy }) {
 
         <form onSubmit={submit} className="space-y-4" noValidate>
           {isRegister && (
-            <TextField label="Name" value={displayName} onChange={setDisplayName} error={errors.displayName} autoComplete="name" maxLength={60} />
+            <TextField
+              id="fullname"
+              name="fullname"
+              label="Name"
+              value={displayName}
+              onChange={setDisplayName}
+              error={errors.displayName}
+              autoComplete="name"
+              maxLength={60}
+              required
+              enterKeyHint="next"
+            />
           )}
           <TextField
-            label="Username"
-            value={username}
-            onChange={setUsername}
-            error={errors.username}
+            id="email"
+            name="email"
+            type="email"
+            label="Gmail address"
+            value={email}
+            onChange={setEmail}
+            error={errors.email}
             autoComplete="username"
-            maxLength={64}
-            hint={isRegister ? '3–32 characters: letters, numbers, _ or .' : undefined}
+            maxLength={100}
+            placeholder="you@gmail.com"
+            spellCheck={false}
+            required
+            enterKeyHint="next"
+            hint={isRegister ? 'Use your @gmail.com address so you can recover your password if you forget it.' : undefined}
           />
           <PasswordField
             label="Password"

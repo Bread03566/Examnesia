@@ -40,7 +40,7 @@ def validate_password(password: str, username: str) -> None:
     if password.lower() in _COMMON:
         raise ValueError("That password is too common. Please choose a less guessable one.")
     if username and password.lower() == username.lower():
-        raise ValueError("Password cannot be the same as your username.")
+        raise ValueError("Password cannot be the same as your email or username.")
 
 
 def _hash_sync(password: str) -> str:

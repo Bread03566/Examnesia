@@ -20,3 +20,11 @@ services:
         value: "false"                   # hard kill switch: no Gemini calls until the owner turns it on
       - key: DEBUG
         value: "false"
+      - key: SMTP_HOST
+        value: "smtp.gmail.com"
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USERNAME
+        sync: false                      # Gmail address used to send password reset codes
+      - key: SMTP_PASSWORD
+        sync: false                      # 16-char Google App Password (never your real Gmail password)

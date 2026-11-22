@@ -10,9 +10,11 @@ PUBLIC = {
     ("GET", "/api/health"),
     ("POST", "/api/auth/register"),
     ("POST", "/api/auth/login"),
+    ("POST", "/api/auth/forgot-password"),  # throttled, generic response
+    ("POST", "/api/auth/reset-password"),   # throttled, 6-digit emailed code
     ("POST", "/api/auth/refresh"),   # cookie + header + origin checks
     ("POST", "/api/auth/logout"),    # cookie based
-    ("POST", "/api/auth/recover"),   # username + recovery code
+    ("POST", "/api/auth/recover"),   # admin username + recovery code
 }
 
 

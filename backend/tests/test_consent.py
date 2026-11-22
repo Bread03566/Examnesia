@@ -114,7 +114,7 @@ def test_admin_overview_shows_only_the_number_of_consenting_students(client, gem
     with SessionLocal() as db:
         name = unique_username("adm")
         cli.create_admin(db, name, "A", STRONG_PASSWORD)
-    admin = client.post("/api/auth/login", json={"username": name, "password": STRONG_PASSWORD}).json()["access_token"]
+    admin = client.post("/api/auth/login", json={"email": name, "password": STRONG_PASSWORD}).json()["access_token"]
     ah = {"Authorization": f"Bearer {admin}"}
     before = client.get("/api/admin/overview", headers=ah).json()["gemini_consents"]
     headers, _, _ = register_user(client)

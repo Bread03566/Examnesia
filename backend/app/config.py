@@ -50,6 +50,15 @@ class Settings(BaseSettings):
     REGISTER_LIMIT_PER_HOUR: int = 20  # new accounts per client IP per hour
     TRUST_PROXY: bool = False  # true behind Render's proxy: the client IP is the last X-Forwarded-For hop
 
+    # Gmail SMTP for password reset codes (use a Google App Password)
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM_NAME: str = "Kabisado"
+    SMTP_TIMEOUT_SECONDS: float = 15.0
+    RESET_CODE_TTL_MINUTES: int = 15
+
     # Gemini AI. Global kill switch: nothing is ever sent to Google unless this is true, even when a
     # key is set. Stays false until the owner has verified billing and reviewed Google's terms.
     GEMINI_ENABLED: bool = False

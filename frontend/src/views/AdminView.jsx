@@ -186,14 +186,14 @@ export default function AdminView({ showToast }) {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-1">
           <h2 className="text-sm sm:text-base font-bold text-slate-900">Students</h2>
           <label className="relative block w-full sm:w-72">
-            <span className="sr-only">Search students by username or name</span>
+            <span className="sr-only">Search students by Gmail or name</span>
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
             <input
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               maxLength={60}
-              placeholder="Search username or name..."
+              placeholder="Search Gmail or name..."
               className="w-full min-h-[40px] rounded-xl border border-slate-300 py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
             />
           </label>
@@ -207,7 +207,7 @@ export default function AdminView({ showToast }) {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="font-bold text-sm text-slate-900 truncate" translate="no">{s.display_name}</p>
-                  <p className="text-xs text-slate-600 truncate" translate="no">@{s.username}</p>
+                  <p className="text-xs text-slate-600 truncate" translate="no">{s.username.includes('@') ? s.username : `@${s.username}`}</p>
                 </div>
                 <StatusBadge student={s} />
               </div>
@@ -238,7 +238,7 @@ export default function AdminView({ showToast }) {
             <thead>
               <tr className="text-left text-xs text-slate-600 border-b border-slate-200">
                 <th className="py-2.5 pr-3 font-semibold">Name</th>
-                <th className="py-2.5 pr-3 font-semibold">Username</th>
+                <th className="py-2.5 pr-3 font-semibold">Gmail / Username</th>
                 <th className="py-2.5 pr-3 font-semibold">Modules</th>
                 <th className="py-2.5 pr-3 font-semibold">Last login</th>
                 <th className="py-2.5 pr-3 font-semibold">Status</th>
@@ -249,7 +249,7 @@ export default function AdminView({ showToast }) {
               {students.map((s) => (
                 <tr key={s.id} className="border-t border-slate-100 hover:bg-slate-50/70">
                   <td className="py-2.5 pr-3 font-semibold text-slate-900" translate="no">{s.display_name}</td>
-                  <td className="py-2.5 pr-3 text-slate-600" translate="no">@{s.username}</td>
+                  <td className="py-2.5 pr-3 text-slate-600" translate="no">{s.username.includes('@') ? s.username : `@${s.username}`}</td>
                   <td className="py-2.5 pr-3 text-slate-700">{s.document_count}</td>
                   <td className="py-2.5 pr-3 text-slate-600 whitespace-nowrap">{fmt(s.last_login_at)}</td>
                   <td className="py-2.5 pr-3"><StatusBadge student={s} /></td>

@@ -60,13 +60,13 @@ def check(name, ok, detail=""):
 
 def register(base, label):
     s = Session(base)
-    username = f"e2e{label}{uuid.uuid4().hex[:8]}"
+    email = f"e2e{label}{uuid.uuid4().hex[:8]}@gmail.com"
     status, body, ms = s.call("POST", "/api/auth/register", {
-        "display_name": f"E2E {label}", "username": username, "password": PASSWORD, "confirm_password": PASSWORD}, auth=False)
+        "display_name": f"E2E {label}", "email": email, "password": PASSWORD, "confirm_password": PASSWORD}, auth=False)
     check(f"register student {label}", status == 201, f"{status}, {ms:.0f} ms")
     if status == 201:
         s.token = body["access_token"]
-    s.username = username
+    s.username = email
     return s
 
 
@@ -94,7 +94,7 @@ def main(base):
         admin_user, admin_pw = os.environ.get("E2E_ADMIN_USERNAME"), os.environ.get("E2E_ADMIN_PASSWORD")
         if admin_user and admin_pw:
             adm = Session(base)
-            status, body, _ = adm.call("POST", "/api/auth/login", {"username": admin_user, "password": admin_pw}, auth=False)
+            status, body, _ = adm.call("POST", "/api/auth/login", {"email": admin_user, "password": admin_pw}, auth=False)
             adm.token = body and body.get("access_token")
             check("admin can reach /api/admin/ping (200)", status == 200 and adm.call("GET", "/api/admin/ping")[0] == 200)
         else:
@@ -107,7 +107,7 @@ def main(base):
         alice.token = body and body.get("access_token")
 
         login_med, login_max = median_ms(lambda: alice.call("POST", "/api/auth/login", {
-            "username": alice.username, "password": PASSWORD}, auth=False)[2])
+            "email": alice.username, "password": PASSWORD}, auth=False)[2])
         list_med, list_max = median_ms(lambda: alice.call("GET", "/api/documents")[2])
         check("login latency measured", True, f"median {login_med:.0f} ms, max {login_max:.0f} ms (Argon2id + DB round trips)")
         check("documents list latency measured", True, f"median {list_med:.0f} ms, max {list_max:.0f} ms")
@@ -116,7 +116,7 @@ def main(base):
         check("summary is the offline version (Gemini disabled)", summary[0] == 200 and bool(summary[1] and summary[1].get("summary")), str(summary[0]))
     finally:
         for s in (alice, bob):
-            _, body, _ = s.call("POST", "/api/auth/login", {"username": s.username, "password": PASSWORD}, auth=False)
+            _, body, _ = s.call("POST", "/api/auth/login", {"email": s.username, "password": PASSWORD}, auth=False)
             s.token = body and body.get("access_token")
             status = s.call("DELETE", "/api/auth/account", {"password": PASSWORD})[0]
             check(f"cleanup: deleted {s.username}", status == 204, str(status))

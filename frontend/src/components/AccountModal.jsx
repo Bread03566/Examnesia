@@ -62,7 +62,7 @@ export default function AccountModal({ user, onClose }) {
       isOpen={true}
       onClose={onClose}
       title={user.display_name}
-      subtitle={`@${user.username}`}
+      subtitle={user.username.includes('@') ? user.username : `@${user.username}`}
       maxWidth="max-w-md"
     >
       <button

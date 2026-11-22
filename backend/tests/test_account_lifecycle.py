@@ -16,8 +16,8 @@ def client():
         yield c
 
 
-def login(client, username, password):
-    return client.post("/api/auth/login", json={"username": username, "password": password})
+def login(client, email, password):
+    return client.post("/api/auth/login", json={"email": email, "password": password})
 
 
 def change(client, headers, current=STRONG_PASSWORD, new=NEW_PASSWORD, confirm=None):

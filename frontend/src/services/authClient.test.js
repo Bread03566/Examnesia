@@ -6,7 +6,7 @@ const json = (status, body = {}) =>
     headers: { "Content-Type": "application/json" },
   });
 
-const USER = { public_id: "u1", display_name: "Ana", username: "ana", role: "student" };
+const USER = { public_id: "u1", display_name: "Ana", username: "ana@gmail.com", role: "student" };
 
 let storage;
 let fetchMock;
@@ -32,7 +32,7 @@ async function load(handler) {
 }
 
 async function signIn() {
-  await authClient.login({ username: "ana", password: "pw" });
+  await authClient.login({ email: "ana@gmail.com", password: "pw" });
 }
 
 beforeEach(() => {
@@ -176,24 +176,29 @@ describe("session lifecycle", () => {
     expect(seen.at(-1)).toBeNull();
   });
 
-  it("register and recover return the one-time recovery code and sign the user in", async () => {
-    await load((url) =>
-      json(url.endsWith("/register") ? 201 : 200, { access_token: "t", user: USER, recovery_code: "AAAA-BBBB" })
-    );
-    const reg = await authClient.register({ displayName: "Ana", username: "ana", password: "p", confirmPassword: "p" });
-    expect(reg).toEqual({ user: USER, recoveryCode: "AAAA-BBBB" });
-    expect(authClient.getAccessToken()).toBe("t");
-    const rec = await authClient.recover({
-      username: "ana", recoveryCode: "AAAA", newPassword: "p", confirmPassword: "p",
+  it("register, forgotPassword, and resetPassword work with Gmail and sign the user in", async () => {
+    await load((url) => {
+      if (url.endsWith("/forgot-password")) return json(200, { detail: "Code sent." });
+      return json(url.endsWith("/register") ? 201 : 200, { access_token: "t", user: USER });
     });
-    expect(rec.recoveryCode).toBe("AAAA-BBBB");
+    const reg = await authClient.register({ displayName: "Ana", email: "ana@gmail.com", password: "p", confirmPassword: "p" });
+    expect(reg).toEqual({ user: USER });
+    expect(authClient.getAccessToken()).toBe("t");
+
+    const forgot = await authClient.forgotPassword({ email: "ana@gmail.com" });
+    expect(forgot.detail).toBe("Code sent.");
+
+    const rec = await authClient.resetPassword({
+      email: "ana@gmail.com", code: "123456", newPassword: "p", confirmPassword: "p",
+    });
+    expect(rec).toEqual({ user: USER });
     const body = JSON.parse(fetchMock.mock.calls.at(-1)[1].body);
-    expect(body).toEqual({ username: "ana", recovery_code: "AAAA", new_password: "p", confirm_password: "p" });
+    expect(body).toEqual({ email: "ana@gmail.com", code: "123456", new_password: "p", confirm_password: "p" });
   });
 
   it("login errors carry the server message and status, and leave no token", async () => {
     await load(() => json(429, { detail: "Too many attempts." }));
-    await expect(authClient.login({ username: "a", password: "b" })).rejects.toMatchObject({
+    await expect(authClient.login({ email: "a@gmail.com", password: "b" })).rejects.toMatchObject({
       message: "Too many attempts.",
       status: 429,
     });

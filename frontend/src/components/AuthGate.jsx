@@ -1,9 +1,8 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import authClient from '../services/authClient';
 import AuthView from '../views/AuthView';
 import RecoverView from '../views/RecoverView';
 import PrivacyView from '../views/PrivacyView';
-import RecoveryCodeScreen from './RecoveryCodeScreen';
 import Mascot from './Mascot';
 
 const AuthContext = createContext({ user: null, logout: () => {} });
@@ -18,15 +17,11 @@ export default function AuthGate({ children }) {
   const [status, setStatus] = useState('loading'); // 'loading' | 'ready'
   const [user, setUser] = useState(null);
   const [screen, setScreen] = useState('auth'); // 'auth' | 'recover' | 'privacy'
-  const [held, setHeld] = useState(false); // a freshly issued recovery code must be saved before the app shows
-  const [code, setCode] = useState(null);
 
   useEffect(() => {
     const off = authClient.onAuthChange((u) => {
       setUser(u);
       if (!u) {
-        setHeld(false);
-        setCode(null);
         setScreen('auth');
       }
     });
@@ -34,13 +29,6 @@ export default function AuthGate({ children }) {
     return off;
   }, []);
 
-  const gate = useMemo(
-    () => ({
-      hold: setHeld,
-      showRecoveryCode: (value, username, isReset = false) => setCode({ value, username, isReset }),
-    }),
-    []
-  );
   const logout = useCallback(() => authClient.logout(), []);
 
   if (status === 'loading') {
@@ -53,25 +41,18 @@ export default function AuthGate({ children }) {
     );
   }
 
-  if (user && !held) {
+  if (user) {
     return <AuthContext.Provider value={{ user, logout }}>{children}</AuthContext.Provider>;
   }
 
-  const finishRecoveryCode = () => {
-    setHeld(false);
-    setCode(null);
-  };
-
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-8 sm:py-12">
-      {code ? (
-        <RecoveryCodeScreen code={code.value} username={code.username} isReset={code.isReset} onContinue={finishRecoveryCode} />
-      ) : screen === 'privacy' ? (
+      {screen === 'privacy' ? (
         <PrivacyView onBack={() => setScreen('auth')} />
       ) : screen === 'recover' ? (
-        <RecoverView gate={gate} onBack={() => setScreen('auth')} />
+        <RecoverView onBack={() => setScreen('auth')} />
       ) : (
-        <AuthView gate={gate} onRecover={() => setScreen('recover')} onPrivacy={() => setScreen('privacy')} />
+        <AuthView onRecover={() => setScreen('recover')} onPrivacy={() => setScreen('privacy')} />
       )}
     </div>
   );

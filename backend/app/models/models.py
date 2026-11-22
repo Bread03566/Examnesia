@@ -38,6 +38,20 @@ class User(Base):
     documents = relationship("Document", back_populates="user", cascade="all, delete-orphan")
     quiz_attempts = relationship("QuizAttempt", back_populates="user", cascade="all, delete-orphan")
     sessions = relationship("UserSession", cascade="all, delete-orphan", passive_deletes=True)
+    reset_codes = relationship("PasswordResetCode", cascade="all, delete-orphan", passive_deletes=True)
+
+
+class PasswordResetCode(Base):
+    """Short-lived 6-digit password reset code sent to a user's Gmail. Only the HMAC hash is stored."""
+    __tablename__ = "password_reset_codes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    code_hash = Column(String(64), nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+    attempts = Column(Integer, nullable=False, default=0, server_default="0")
 
 
 class UserSession(Base):

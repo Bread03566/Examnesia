@@ -5,7 +5,7 @@ from app import cli
 from app.database import SessionLocal
 from app.main import app
 from app.models.models import User
-from tests.helpers import STRONG_PASSWORD, register_user, unique_username
+from tests.helpers import STRONG_PASSWORD, register_user, unique_email, unique_username
 
 
 @pytest.fixture
@@ -33,7 +33,7 @@ def test_cli_created_admin_can_log_in_and_reach_admin_routes(client, db):
     assert len(code.replace("-", "")) == 26
     row = db.query(User).filter_by(username=username).one()
     assert row.role == "admin" and row.is_active and row.recovery_hash and row.password_hash != STRONG_PASSWORD
-    res = client.post("/api/auth/login", json={"username": username, "password": STRONG_PASSWORD})
+    res = client.post("/api/auth/login", json={"email": username, "password": STRONG_PASSWORD})
     assert res.status_code == 200 and res.json()["user"]["role"] == "admin"
     token = {"Authorization": f"Bearer {res.json()['access_token']}"}
     assert client.get("/api/admin/ping", headers=token).json() == {"ok": True}
@@ -55,7 +55,7 @@ def test_create_admin_applies_the_same_username_and_password_rules(db):
 
 def test_public_registration_can_never_produce_an_admin(client):
     res = client.post("/api/auth/register", json={
-        "display_name": "Sneaky", "username": unique_username(), "password": STRONG_PASSWORD,
+        "display_name": "Sneaky", "email": unique_email(), "password": STRONG_PASSWORD,
         "confirm_password": STRONG_PASSWORD, "role": "admin"})
     assert res.status_code == 422
     headers, username, _ = register_user(client)
@@ -97,3 +97,18 @@ def test_cli_purge_needs_explicit_confirmation(db, capsys):
     assert cli.main(["purge-legacy", "--yes"]) == 0
     db.expire_all()
     assert db.query(User).filter_by(username=legacy).first() is None
+
+
+def test_purge_non_admins_removes_students_and_keeps_admins(client, db, capsys):
+    admin_name = unique_username("adm")
+    cli.create_admin(db, admin_name, "Site Admin", STRONG_PASSWORD)
+    _, student_email, _ = register_user(client)
+
+    assert cli.main(["purge-non-admins"]) == 1  # refuses without --yes
+    assert db.query(User).filter_by(username=student_email).first() is not None
+
+    assert cli.main(["purge-non-admins", "--yes"]) == 0
+    db.expire_all()
+    assert db.query(User).filter_by(username=student_email).first() is None
+    assert db.query(User).filter_by(username=admin_name).first() is not None
+    assert db.query(User).filter(User.role != "admin").count() == 0

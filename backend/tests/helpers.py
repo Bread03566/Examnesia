@@ -11,16 +11,23 @@ def unique_username(prefix: str = "stu") -> str:
     return f"{prefix}{uuid.uuid4().hex[:10]}"
 
 
+def unique_email(prefix: str = "stu") -> str:
+    return f"{prefix}{uuid.uuid4().hex[:10]}@gmail.com"
+
+
 def register_user(client, username: str | None = None, display_name: str = "Test Student",
-                  password: str = STRONG_PASSWORD) -> tuple[dict, str, str]:
-    """Register a fresh student. Returns (auth headers, username, recovery code)."""
-    username = username or unique_username()
+                  password: str = STRONG_PASSWORD) -> tuple[dict, str, None]:
+    """Register a fresh student with a Gmail address. Returns (auth headers, email, None)."""
+    if username is None:
+        email = unique_email()
+    else:
+        email = username if "@" in username else f"{username}@gmail.com"
     res = client.post("/api/auth/register", json={
-        "display_name": display_name, "username": username,
+        "display_name": display_name, "email": email,
         "password": password, "confirm_password": password,
     })
     assert res.status_code == 201, res.text
-    return {"Authorization": f"Bearer {res.json()['access_token']}"}, username, res.json()["recovery_code"]
+    return {"Authorization": f"Bearer {res.json()['access_token']}"}, email, None
 
 
 def refresh_cookie_value(response) -> str | None:

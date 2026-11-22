@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import datetime
+import hashlib
+import hmac
+import secrets
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -8,12 +11,21 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.account_cleanup import delete_user_files
 from app.config import settings
 from app.database import get_db
-from app.account_cleanup import delete_user_files
-from app.models.models import User
+from app.models.models import PasswordResetCode, User, UserSession
 from app.schemas.auth import (
-    ChangePasswordRequest, LoginRequest, PasswordConfirmRequest, RecoverRequest, RecoveryTokenResponse, RegisterRequest, TokenResponse, UserOut,
+    ChangePasswordRequest,
+    ForgotPasswordRequest,
+    LoginRequest,
+    PasswordConfirmRequest,
+    RecoverRequest,
+    RecoveryTokenResponse,
+    RegisterRequest,
+    ResetPasswordRequest,
+    TokenResponse,
+    UserOut,
 )
 from app.security import throttle
 from app.security.bearer import get_bearer_user
@@ -22,13 +34,17 @@ from app.security.recovery import generate_recovery_code, hash_recovery_code_syn
 from app.security.sessions import (
     SessionError, issue_session, revoke_all_for_user, revoke_session, rotate_session,
 )
-from app.models.models import UserSession
 from app.security.tokens import create_access_token, decode_access_token
+from app.services import email_service
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-BAD_LOGIN = "Incorrect username or password."
+BAD_LOGIN = "Incorrect Gmail or password."
 BAD_RECOVERY = "That username and recovery code do not match."
+BAD_RESET = "Invalid or expired reset code."
+FORGOT_OK = "If that Gmail address is registered, we sent a 6-digit reset code. Check your inbox and spam folder."
+RESET_MAX_ATTEMPTS = 5
+RESET_RESEND_COOLDOWN_SECONDS = 60
 
 
 def client_ip(request: Request) -> str:
@@ -83,46 +99,161 @@ def _start_session(db: Session, user: User, request: Request, response: Response
     return create_access_token(user.id, session.id)
 
 
-@router.post("/register", response_model=RecoveryTokenResponse, status_code=status.HTTP_201_CREATED)
+def _hash_reset_code(user_id: int, code: str, secret: str | None = None) -> str:
+    key = (secret or settings.JWT_SECRET).encode("utf-8")
+    return hmac.new(key, f"{user_id}:{code}".encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _verify_reset_code(user_id: int, code: str, stored_hash: str) -> bool:
+    if hmac.compare_digest(stored_hash, _hash_reset_code(user_id, code, settings.JWT_SECRET)):
+        return True
+    if settings.JWT_SECRET_PREVIOUS:
+        return hmac.compare_digest(stored_hash, _hash_reset_code(user_id, code, settings.JWT_SECRET_PREVIOUS))
+    return False
+
+
+@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 def register(payload: RegisterRequest, request: Request, response: Response, db: Session = Depends(get_db)):
     try:
-        validate_password(payload.password, payload.username)
+        validate_password(payload.password, payload.email)
     except ValueError as err:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(err))
     throttle.register_gate(db, client_ip(request))
-    if db.query(User.id).filter(User.username == payload.username).first():
-        raise HTTPException(status.HTTP_409_CONFLICT, "That username is already taken.")
+    if db.query(User.id).filter(User.username == payload.email).first():
+        raise HTTPException(status.HTTP_409_CONFLICT, "That Gmail address is already registered.")
 
-    recovery_code = generate_recovery_code()
     password_hash = hash_password_sync(payload.password)
-    recovery_hash = hash_recovery_code_sync(recovery_code)
-    user = User(username=payload.username, display_name=payload.display_name,
-                password_hash=password_hash, recovery_hash=recovery_hash)  # role/is_active use safe defaults
+    user = User(
+        username=payload.email,
+        display_name=payload.display_name,
+        password_hash=password_hash,
+        recovery_hash=None,  # students recover via Gmail reset code
+    )  # role/is_active use safe defaults
     db.add(user)
     try:
         db.commit()
-    except IntegrityError:  # lost a race for the same username
+    except IntegrityError:  # lost a race for the same Gmail
         db.rollback()
-        raise HTTPException(status.HTTP_409_CONFLICT, "That username is already taken.")
+        raise HTTPException(status.HTTP_409_CONFLICT, "That Gmail address is already registered.")
     access = _start_session(db, user, request, response)
-    return RecoveryTokenResponse(access_token=access, user=UserOut.model_validate(user), recovery_code=recovery_code)
+    return TokenResponse(access_token=access, user=UserOut.model_validate(user))
 
 
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
     ip = client_ip(request)
-    throttle.check_allowed(db, payload.username, ip)
-    user = db.query(User).filter(User.username == payload.username).first()
+    throttle.check_allowed(db, payload.email, ip)
+    user = db.query(User).filter(User.username == payload.email).first()
     ok = verify_password_sync(user.password_hash if user else None, payload.password)
     if not (user and ok):
-        throttle.record_failure(db, payload.username, ip)
+        throttle.record_failure(db, payload.email, ip)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, BAD_LOGIN)
     if not user.is_active:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "This account has been deactivated.")
     if needs_rehash(user.password_hash):
         user.password_hash = hash_password_sync(payload.password)
     user.last_login_at = _naive_now()
-    throttle.record_success(db, payload.username, ip)  # also commits the changes above
+    throttle.record_success(db, payload.email, ip)  # also commits the changes above
+    access = _start_session(db, user, request, response)
+    return TokenResponse(access_token=access, user=UserOut.model_validate(user))
+
+
+@router.post("/forgot-password")
+def forgot_password(payload: ForgotPasswordRequest, request: Request, db: Session = Depends(get_db)):
+    """Send a 6-digit password reset code to the user's Gmail. Always returns a generic 200 to prevent enumeration."""
+    if not email_service.is_smtp_configured():
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Password reset email is not configured on this server yet. Please contact the admin.",
+        )
+
+    ip = client_ip(request)
+    throttle_key = "forgot:" + payload.email
+    throttle.check_allowed(db, throttle_key, ip)
+    throttle.record_failure(db, throttle_key, ip)  # rate-limit repeated sends per email + IP
+
+    user = db.query(User).filter(User.username == payload.email).first()
+    if user and user.is_active and user.password_hash and user.username.endswith("@gmail.com"):
+        now = _naive_now()
+        latest = (
+            db.query(PasswordResetCode)
+            .filter(PasswordResetCode.user_id == user.id)
+            .order_by(PasswordResetCode.id.desc())
+            .first()
+        )
+        if latest and (now - latest.created_at).total_seconds() < RESET_RESEND_COOLDOWN_SECONDS:
+            return {"detail": FORGOT_OK}
+
+        # Invalidate any previously issued unused codes for this user.
+        db.query(PasswordResetCode).filter(
+            PasswordResetCode.user_id == user.id,
+            PasswordResetCode.used_at.is_(None),
+        ).update({"used_at": now}, synchronize_session=False)
+
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        reset_row = PasswordResetCode(
+            user_id=user.id,
+            code_hash=_hash_reset_code(user.id, code),
+            created_at=now,
+            expires_at=now + datetime.timedelta(minutes=settings.RESET_CODE_TTL_MINUTES),
+        )
+        db.add(reset_row)
+        db.commit()
+
+        try:
+            email_service.send_password_reset_email(user.username, code, user.display_name)
+        except email_service.EmailDeliveryError as err:
+            reset_row.used_at = _naive_now()
+            db.commit()
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(err))
+
+    return {"detail": FORGOT_OK}
+
+
+@router.post("/reset-password", response_model=TokenResponse)
+def reset_password(payload: ResetPasswordRequest, request: Request, response: Response, db: Session = Depends(get_db)):
+    ip = client_ip(request)
+    throttle_key = "reset:" + payload.email
+    throttle.check_allowed(db, throttle_key, ip)
+    try:
+        validate_password(payload.new_password, payload.email)
+    except ValueError as err:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(err))
+
+    user = db.query(User).filter(User.username == payload.email).first()
+    now = _naive_now()
+    row = None
+    if user:
+        row = (
+            db.query(PasswordResetCode)
+            .filter(
+                PasswordResetCode.user_id == user.id,
+                PasswordResetCode.used_at.is_(None),
+                PasswordResetCode.expires_at > now,
+                PasswordResetCode.attempts < RESET_MAX_ATTEMPTS,
+            )
+            .order_by(PasswordResetCode.id.desc())
+            .first()
+        )
+
+    ok = bool(user and row and _verify_reset_code(user.id, payload.code, row.code_hash))
+    if not ok:
+        if row is not None:
+            row.attempts += 1
+            if row.attempts >= RESET_MAX_ATTEMPTS:
+                row.used_at = now
+            db.commit()
+        throttle.record_failure(db, throttle_key, ip)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, BAD_RESET)
+
+    if not user.is_active:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This account has been deactivated.")
+
+    row.used_at = now
+    user.password_hash = hash_password_sync(payload.new_password)
+    db.commit()
+    revoke_all_for_user(db, user.id)
+    throttle.record_success(db, throttle_key, ip)
     access = _start_session(db, user, request, response)
     return TokenResponse(access_token=access, user=UserOut.model_validate(user))
 
@@ -157,6 +288,7 @@ def logout(request: Request, db: Session = Depends(get_db), _: None = Depends(re
 
 @router.post("/recover", response_model=RecoveryTokenResponse)
 def recover(payload: RecoverRequest, request: Request, response: Response, db: Session = Depends(get_db)):
+    """Recovery-code fallback (used for CLI-created admin accounts)."""
     ip, throttle_name = client_ip(request), "recover:" + payload.username
     throttle.check_allowed(db, throttle_name, ip)
     try:
