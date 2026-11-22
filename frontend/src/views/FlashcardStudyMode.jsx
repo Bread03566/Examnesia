@@ -466,7 +466,7 @@ export default function FlashcardStudyMode({
                 </div>
 
                 <div className="text-center text-[11px] text-indigo-300/50">
-                  Kabisado Spaced Repetition (SM-2)
+                  Examnesia Spaced Repetition (SM-2)
                 </div>
               </div>
 

@@ -147,7 +147,7 @@
     stopTimers();
     setProgress(90000);
     $("wake-title").textContent = "Kabi is awake!";
-    $("wake-status").textContent = "Opening Kabisado…";
+    $("wake-status").textContent = "Opening Examnesia…";
     window.location.assign(API + "/");
   }
 

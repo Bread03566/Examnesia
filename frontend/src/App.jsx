@@ -412,7 +412,7 @@ export default function App() {
         <footer className="hidden md:block border-t border-slate-200 bg-white py-5 text-xs text-slate-600">
           <div className="max-w-6xl mx-auto px-6 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
-              <span translate="no" className="notranslate font-bold text-slate-900">Kabisado {petEmoji}</span>
+              <span translate="no" className="notranslate font-bold text-slate-900">Examnesia {petEmoji}</span>
             </div>
             <span className="text-slate-500">Privacy-first study companion</span>
           </div>

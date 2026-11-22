@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_USERNAME: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
-    SMTP_FROM_NAME: str = "Kabisado"
+    SMTP_FROM_NAME: str = "Examnesia"
     SMTP_TIMEOUT_SECONDS: float = 15.0
     RESET_CODE_TTL_MINUTES: int = 15
 

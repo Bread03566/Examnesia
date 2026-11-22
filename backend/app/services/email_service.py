@@ -38,16 +38,16 @@ def send_password_reset_email(to_email: str, code: str, display_name: str) -> No
     safe_name = (display_name or "Student").strip()
 
     msg = EmailMessage()
-    msg["Subject"] = f"{code} is your Kabisado password reset code"
+    msg["Subject"] = f"{code} is your Examnesia password reset code"
     msg["From"] = formataddr((settings.SMTP_FROM_NAME, sender))
     msg["To"] = to_email
 
     msg.set_content(
         f"Hi {safe_name},\n\n"
-        f"We received a request to reset your Kabisado password.\n\n"
+        f"We received a request to reset your Examnesia password.\n\n"
         f"Your 6-digit reset code is: {code}\n\n"
         f"This code expires in {ttl} minutes. If you didn't request this, you can safely ignore this email.\n\n"
-        f"— Kabisado\n"
+        f"— Examnesia\n"
     )
     msg.add_alternative(
         f"""\
@@ -55,9 +55,9 @@ def send_password_reset_email(to_email: str, code: str, display_name: str) -> No
 <html>
   <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #0f172a; line-height: 1.5; padding: 16px;">
     <div style="max-width: 460px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 16px; padding: 24px; background: #ffffff;">
-      <h2 style="margin: 0 0 8px; font-size: 18px; color: #0f172a;">Reset your Kabisado password</h2>
+      <h2 style="margin: 0 0 8px; font-size: 18px; color: #0f172a;">Reset your Examnesia password</h2>
       <p style="margin: 0 0 16px; font-size: 14px; color: #475569;">
-        Hi {html.escape(safe_name)}, enter this 6-digit code in Kabisado to set a new password:
+        Hi {html.escape(safe_name)}, enter this 6-digit code in Examnesia to set a new password:
       </p>
       <div style="text-align: center; margin: 20px 0; padding: 14px; border-radius: 12px; background: #fffbeb; border: 1px solid #fde68a;">
         <span style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 28px; font-weight: 800; letter-spacing: 6px; color: #b45309;">{code}</span>

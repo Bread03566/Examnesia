@@ -99,11 +99,11 @@ export default function UpdateModal({ updateInfo, onClose }) {
       <div className="space-y-4 text-xs sm:text-sm text-slate-700">
         {mandatory ? (
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950 leading-relaxed">
-            <strong>This update is required</strong> to stay compatible with the latest Kabisado server features and security checks.
+            <strong>This update is required</strong> to stay compatible with the latest Examnesia server features and security checks.
           </div>
         ) : (
           <p className="text-xs text-slate-600">
-            A newer signed version of the Kabisado Android app is ready to install.
+            A newer signed version of the Examnesia Android app is ready to install.
           </p>
         )}
 
@@ -156,9 +156,9 @@ export default function UpdateModal({ updateInfo, onClose }) {
 
         {phase === 'needs_permission' && (
           <div className="space-y-2.5 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
-            <p className="font-bold">Allow &ldquo;Install unknown apps&rdquo; for Kabisado</p>
+            <p className="font-bold">Allow &ldquo;Install unknown apps&rdquo; for Examnesia</p>
             <p>
-              Android requires your permission before Kabisado can hand the verified update to the system package installer. Tap below to open the setting, enable it, then return and tap <strong>Install Verified Update</strong>.
+              Android requires your permission before Examnesia can hand the verified update to the system package installer. Tap below to open the setting, enable it, then return and tap <strong>Install Verified Update</strong>.
             </p>
             <div className="flex flex-wrap gap-2 pt-1">
               <button

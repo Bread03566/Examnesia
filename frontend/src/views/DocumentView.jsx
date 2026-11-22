@@ -218,7 +218,7 @@ export default function DocumentView({
             className="min-h-[40px] inline-flex items-center justify-center gap-1.5 px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 font-bold text-xs rounded-xl transition"
           >
             <Sparkles className="w-4 h-4" />
-            <span>Ask Kabisado</span>
+            <span>Ask Examnesia</span>
           </button>
 
           <button

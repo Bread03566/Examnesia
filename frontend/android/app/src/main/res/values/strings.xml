@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Kabisado</string>
-    <string name="title_activity_main">Kabisado</string>
+    <string name="app_name">Examnesia</string>
+    <string name="title_activity_main">Examnesia</string>
     <string name="package_name">com.kabisado.app</string>
     <string name="custom_url_scheme">com.kabisado.app</string>
 </resources>

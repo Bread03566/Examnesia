@@ -1,6 +1,6 @@
 {
   "appId": "com.kabisado.app",
-  "appName": "Kabisado",
+  "appName": "Examnesia",
   "webDir": "dist",
   "server": {
     "androidScheme": "https"

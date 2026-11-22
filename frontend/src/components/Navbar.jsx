@@ -50,7 +50,7 @@ export default function Navbar({ activeTab, onSelectTab, currentDoc }) {
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span translate="no" className="notranslate font-extrabold text-lg md:text-xl tracking-tight text-slate-900 group-hover:text-amber-700 transition">
-                  Kabisado
+                  Examnesia
                 </span>
                 <span className="hidden lg:inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-100 text-amber-800 rounded-full border border-amber-200">
                   Study Companion

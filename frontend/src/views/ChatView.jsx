@@ -214,7 +214,7 @@ export default function ChatView({
           <div className="min-w-0">
             <h1 className="text-base sm:text-lg font-extrabold text-slate-900 flex items-center gap-1.5">
               <Sparkles className="w-4 h-4 text-amber-700 shrink-0" />
-              <span className="truncate">Ask Kabisado</span>
+              <span className="truncate">Ask Examnesia</span>
             </h1>
             <p className="text-xs text-slate-600 truncate">
               {documentTitle}

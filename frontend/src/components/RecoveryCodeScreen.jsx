@@ -17,11 +17,11 @@ export default function RecoveryCodeScreen({ code, username, onContinue, isReset
   };
 
   const download = () => {
-    const text = `Kabisado recovery code\nUsername: ${username || ''}\nCode: ${code}\n\nKeep this somewhere safe. Anyone with this code can reset your password.\n`;
+    const text = `Examnesia recovery code\nUsername: ${username || ''}\nCode: ${code}\n\nKeep this somewhere safe. Anyone with this code can reset your password.\n`;
     const url = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'kabisado-recovery-code.txt';
+    a.download = 'examnesia-recovery-code.txt';
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -70,7 +70,7 @@ export default function RecoveryCodeScreen({ code, username, onContinue, isReset
         onClick={onContinue}
         className="mt-4 w-full rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-amber-600 disabled:cursor-not-allowed disabled:bg-slate-300"
       >
-        Continue to Kabisado
+        Continue to Examnesia
       </button>
     </div>
   );

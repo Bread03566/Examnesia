@@ -70,7 +70,7 @@ export default function AccountModal({ user, onClose }) {
       if (res.status === 'optional_update' || res.status === 'mandatory_update') {
         setManualUpdateInfo(res);
       } else if (res.status === 'up_to_date' || res.status === 'deferred') {
-        setDone('Your Kabisado app is up to date.');
+        setDone('Your Examnesia app is up to date.');
       } else if (res.status === 'incompatible_sdk') {
         setError(`The latest update requires Android API ${res.minSdk || 24} or higher.`);
       } else {

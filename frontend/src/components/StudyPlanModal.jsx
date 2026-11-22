@@ -63,7 +63,7 @@ export default function StudyPlanModal({ isOpen, onClose, documentTitle, topics 
           tasks: [
             'Clear due flashcards in your spaced repetition queue.',
             'Take a 10-question quiz at Medium or Hard difficulty.',
-            'Use Ask Kabisado to clarify confusing sections.',
+            'Use Ask Examnesia to clarify confusing sections.',
           ],
         });
       }

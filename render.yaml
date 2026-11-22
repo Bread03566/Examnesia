@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: kabisado
+    name: examnesia
     runtime: docker
     dockerfilePath: backend/Dockerfile   # built from the repo root: it also builds and bundles the frontend
     plan: free                           # free: sleeps when idle; all data lives in Supabase, not on this disk

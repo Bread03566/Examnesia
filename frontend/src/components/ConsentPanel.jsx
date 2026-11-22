@@ -43,7 +43,7 @@ export default function ConsentPanel() {
       {state && !state.gemini_available && (
         <p className="mt-2">
           <strong>Not available.</strong> Gemini AI is switched off on this site, so none of your content is sent to any
-          AI service. Summaries, flashcards, quizzes and chat use Kabisado&apos;s built-in offline mode.
+          AI service. Summaries, flashcards, quizzes and chat use Examnesia&apos;s built-in offline mode.
         </p>
       )}
 
@@ -51,7 +51,7 @@ export default function ConsentPanel() {
         <div className="mt-2 space-y-2">
           <p><strong>On.</strong> The text of the sections you ask about, and your chat questions, are sent to Google&apos;s Gemini.</p>
           <p className="text-slate-500">
-            Turning it off works immediately. Anything already sent cannot be recalled or deleted by Kabisado, and
+            Turning it off works immediately. Anything already sent cannot be recalled or deleted by Examnesia, and
             deleting a module here does not delete what Google received. Study material already made is kept.
           </p>
           <button type="button" disabled={busy} onClick={() => act(withdrawGeminiConsent)}
@@ -74,7 +74,7 @@ export default function ConsentPanel() {
             <li>For unpaid use, Google&apos;s terms say content may be used to provide, improve and develop its products, and human reviewers may read it.</li>
             <li>Google asks users not to submit sensitive, confidential or personal information.</li>
             <li>The terms do not say how long unpaid-use content is kept.</li>
-            <li>Kabisado cannot take back or delete content after it is sent.</li>
+            <li>Examnesia cannot take back or delete content after it is sent.</li>
           </ul>
           <label className="flex items-start gap-2">
             <input type="checkbox" checked={adult} onChange={(e) => setAdult(e.target.checked)} className="mt-0.5 h-4 w-4 accent-amber-500" />
