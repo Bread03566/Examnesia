@@ -75,6 +75,21 @@ describe('Kabisado UI/UX & Safety Invariants', () => {
     expect(modal).toMatch(/e\.key === 'Escape'/);
     expect(modal).toMatch(/max-h-\[90dvh\]/);
   });
+
+  it('requires a module title on upload, asks before proceeding to the module, and prompts for handout selection in Module and Progress views when no module was opened from Library', () => {
+    const uploadView = readFileSync(join(SRC_ROOT, 'views', 'UploadLibraryView.jsx'), 'utf8');
+    expect(uploadView).not.toContain('Module title (optional)');
+    expect(uploadView).toContain('Proceed to module?');
+    expect(uploadView).toContain('Stay in Library');
+
+    const appSrc = readFileSync(join(SRC_ROOT, 'App.jsx'), 'utf8');
+    expect(appSrc).toContain('Select a handout or module');
+    expect(appSrc).toContain('Proceed to Module');
+
+    const progressSrc = readFileSync(join(SRC_ROOT, 'views', 'ProgressView.jsx'), 'utf8');
+    expect(progressSrc).toContain('Select a handout or module');
+    expect(progressSrc).toContain('View Progress');
+  });
 });
 
 describe('SummaryView helpers', () => {

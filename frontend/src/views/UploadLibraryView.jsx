@@ -31,8 +31,10 @@ export default function UploadLibraryView({
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [customTitle, setCustomTitle] = useState('');
+  const [selectedFile, setSelectedFile] = useState(null);
   const [pasteTitle, setPasteTitle] = useState('');
   const [pasteText, setPasteText] = useState('');
+  const [pendingProceedDoc, setPendingProceedDoc] = useState(null);
   const fileInputRef = useRef(null);
 
   // Library search, filter, sort & delete confirmation
@@ -58,27 +60,43 @@ export default function UploadLibraryView({
       });
   }, [documents, searchQuery, typeFilter, sortBy]);
 
-  const handleFileUpload = async (file) => {
+  const handleSelectFile = (file) => {
     if (!file) return;
     const ext = file.name.split('.').pop().toLowerCase();
     if (ext !== 'pdf' && ext !== 'docx') {
       showToast('error', 'Unsupported file type. Please upload a PDF or DOCX file.');
+      if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
     if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
       showToast('error', `File exceeds the ${MAX_UPLOAD_MB} MB limit. Please upload a smaller file.`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    setSelectedFile(file);
+  };
+
+  const handleFileUploadSubmit = async (e) => {
+    e.preventDefault();
+    if (!customTitle.trim()) {
+      showToast('error', 'Please enter a module title before uploading.');
+      return;
+    }
+    if (!selectedFile) {
+      showToast('error', 'Please choose a PDF or DOCX file to upload.');
       return;
     }
 
     setIsUploading(true);
     try {
       showToast('info', 'Reading your file and organizing topics...');
-      const newDoc = await uploadDocumentFile(file, customTitle);
+      const newDoc = await uploadDocumentFile(selectedFile, customTitle.trim());
       showToast('success', `"${newDoc.title}" is ready to study.`);
       setCustomTitle('');
+      setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
       await onRefreshDocs();
-      onSelectDoc(newDoc);
+      setPendingProceedDoc(newDoc);
     } catch (err) {
       showToast('error', err.message || 'Upload failed. Please try again.');
     } finally {
@@ -90,7 +108,7 @@ export default function UploadLibraryView({
     e.preventDefault();
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFileUpload(e.dataTransfer.files[0]);
+      handleSelectFile(e.dataTransfer.files[0]);
     }
   };
 
@@ -104,12 +122,12 @@ export default function UploadLibraryView({
     setIsUploading(true);
     try {
       showToast('info', 'Processing notes and splitting into topics...');
-      const newDoc = await createDocumentFromText(pasteTitle, pasteText);
+      const newDoc = await createDocumentFromText(pasteTitle.trim(), pasteText);
       showToast('success', `"${newDoc.title}" saved.`);
       setPasteTitle('');
       setPasteText('');
       await onRefreshDocs();
-      onSelectDoc(newDoc);
+      setPendingProceedDoc(newDoc);
     } catch (err) {
       showToast('error', err.message || 'Could not save your notes.');
     } finally {
@@ -201,10 +219,10 @@ export default function UploadLibraryView({
 
         <div className="p-4 sm:p-6">
           {activeTab === 'upload' ? (
-            <div className="space-y-4">
+            <form onSubmit={handleFileUploadSubmit} className="space-y-4">
               <div>
                 <label htmlFor="custom-module-title" className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Module title (optional)
+                  Module title <span className="text-rose-600">*</span>
                 </label>
                 <input
                   id="custom-module-title"
@@ -213,6 +231,7 @@ export default function UploadLibraryView({
                   value={customTitle}
                   onChange={(e) => setCustomTitle(e.target.value)}
                   disabled={isUploading}
+                  required
                   className="w-full min-h-[42px] text-sm px-3.5 py-2 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
                 />
               </div>
@@ -220,7 +239,7 @@ export default function UploadLibraryView({
               <input
                 type="file"
                 ref={fileInputRef}
-                onChange={(e) => handleFileUpload(e.target.files?.[0])}
+                onChange={(e) => handleSelectFile(e.target.files?.[0])}
                 accept=".pdf,.docx"
                 className="sr-only"
                 aria-label="Choose a PDF or DOCX file"
@@ -233,26 +252,78 @@ export default function UploadLibraryView({
                 onDragLeave={() => setIsDragging(false)}
                 onDrop={handleDrop}
                 onClick={() => fileInputRef.current?.click()}
-                className={`w-full border-2 border-dashed rounded-2xl p-6 sm:p-10 text-center transition flex flex-col items-center justify-center gap-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 disabled:opacity-60 ${
+                className={`w-full border-2 border-dashed rounded-2xl p-6 sm:p-8 text-center transition flex flex-col items-center justify-center gap-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 disabled:opacity-60 ${
                   isDragging
                     ? 'border-amber-500 bg-amber-50'
+                    : selectedFile
+                    ? 'border-emerald-400 bg-emerald-50/40'
                     : 'border-slate-300 hover:border-amber-400 hover:bg-amber-50/40'
                 }`}
               >
-                <div className="w-12 h-12 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-800">
-                  {isUploading ? <Loader2 className="w-6 h-6 animate-spin" /> : <FileUp className="w-6 h-6" />}
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${selectedFile ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                  {isUploading ? (
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                  ) : selectedFile ? (
+                    <CheckCircle2 className="w-6 h-6" />
+                  ) : (
+                    <FileUp className="w-6 h-6" />
+                  )}
                 </div>
 
                 <div className="space-y-1">
-                  <p className="font-bold text-slate-900 text-sm sm:text-base">
-                    {isUploading ? 'Processing your module...' : 'Drop a PDF or Word file here, or tap to browse'}
+                  <p className="font-bold text-slate-900 text-sm sm:text-base break-all">
+                    {isUploading
+                      ? 'Processing your module...'
+                      : selectedFile
+                      ? `Selected: ${selectedFile.name}`
+                      : 'Drop a PDF or Word file here, or tap to browse'}
                   </p>
                   <p className="text-xs text-slate-600">
-                    Supports <span className="font-semibold">PDF (.pdf)</span> and <span className="font-semibold">Word (.docx)</span> up to {MAX_UPLOAD_MB} MB
+                    {selectedFile ? (
+                      <span>
+                        {(selectedFile.size / 1024).toFixed(0)} KB · Tap here if you want to choose a different file
+                      </span>
+                    ) : (
+                      <>
+                        Supports <span className="font-semibold">PDF (.pdf)</span> and <span className="font-semibold">Word (.docx)</span> up to {MAX_UPLOAD_MB} MB
+                      </>
+                    )}
                   </p>
                 </div>
               </button>
-            </div>
+
+              <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 pt-1">
+                {selectedFile && !isUploading && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedFile(null);
+                      if (fileInputRef.current) fileInputRef.current.value = '';
+                    }}
+                    className="min-h-[42px] px-4 py-2 rounded-xl border border-slate-300 bg-white text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Clear file
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  disabled={isUploading || !customTitle.trim() || !selectedFile}
+                  className="min-h-[42px] px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-xs transition disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+                >
+                  {isUploading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Processing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Upload & Process Module</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           ) : (
             <form onSubmit={handlePasteSubmit} className="space-y-4">
               <div>
@@ -463,6 +534,24 @@ export default function UploadLibraryView({
           </div>
         )}
       </section>
+
+      <ConfirmDialog
+        isOpen={Boolean(pendingProceedDoc)}
+        onClose={() => setPendingProceedDoc(null)}
+        onConfirm={() => {
+          const docToOpen = pendingProceedDoc;
+          setPendingProceedDoc(null);
+          if (docToOpen) onSelectDoc(docToOpen);
+        }}
+        title="Proceed to module?"
+        message={
+          pendingProceedDoc
+            ? `"${pendingProceedDoc.title}" has been added to your library. Would you like to open and study this module now?`
+            : ''
+        }
+        confirmLabel="Proceed to Module"
+        cancelLabel="Stay in Library"
+      />
 
       <ConfirmDialog
         isOpen={Boolean(pendingDelete)}

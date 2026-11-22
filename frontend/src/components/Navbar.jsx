@@ -14,19 +14,16 @@ export default function Navbar({ activeTab, onSelectTab, currentDoc }) {
     { id: 'library', label: 'Library', mobileLabel: 'Library', icon: BookOpen, active: activeTab === 'library' },
     { id: 'dashboard', label: 'Dashboard', mobileLabel: 'Progress', icon: BarChart3, active: activeTab === 'dashboard' },
     { id: 'exam', label: 'Exam Prep', mobileLabel: 'Exam', icon: GraduationCap, active: activeTab === 'exam' },
-  ];
-
-  if (currentDoc) {
-    navItems.push({
+    {
       id: 'document',
-      label: currentDoc.title,
+      label: currentDoc ? currentDoc.title : 'Module',
       mobileLabel: 'Module',
       icon: Layers,
       active: isDocActive,
-      title: currentDoc.title,
-      truncate: true,
-    });
-  }
+      title: currentDoc ? currentDoc.title : 'Select a handout or module',
+      truncate: Boolean(currentDoc),
+    },
+  ];
 
   if (user?.role === 'admin') {
     navItems.push({

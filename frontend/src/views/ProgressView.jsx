@@ -28,21 +28,29 @@ function groupByDocument(topics) {
 }
 
 export default function ProgressView({
+  documents = [],
+  initialDocumentId = null,
   onStartDueCards,
   onStartWeakSpotQuiz,
   onSelectTopicQuiz,
   onGoToLibrary,
   showToast,
 }) {
+  const [selectedDocId, setSelectedDocId] = useState(initialDocumentId); // null = needs selection, 'all' = all modules, number = doc id
+  const [pickerValue, setPickerValue] = useState(initialDocumentId || documents[0]?.id || 'all');
   const [stats, setStats] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(Boolean(initialDocumentId));
   const [loadError, setLoadError] = useState('');
 
+  const activeFilterDocId = selectedDocId === 'all' ? null : selectedDocId;
+  const activeDoc = documents.find((d) => d.id === activeFilterDocId) || null;
+
   const loadDashboard = useCallback(async () => {
+    if (!selectedDocId) return;
     setIsLoading(true);
     setLoadError('');
     try {
-      const data = await getDashboardStats();
+      const data = await getDashboardStats(selectedDocId === 'all' ? null : selectedDocId);
       setStats(data);
     } catch (err) {
       const msg = err?.message || 'Could not load dashboard stats.';
@@ -51,11 +59,108 @@ export default function ProgressView({
     } finally {
       setIsLoading(false);
     }
-  }, [showToast]);
+  }, [selectedDocId, showToast]);
 
   useEffect(() => {
-    loadDashboard();
-  }, [loadDashboard]);
+    if (selectedDocId) {
+      loadDashboard();
+    }
+  }, [selectedDocId, loadDashboard]);
+
+  if (!selectedDocId) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
+        <div className="flex items-center gap-3">
+          <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-amber-900 shrink-0">
+            <BarChart3 className="w-5 h-5" />
+          </span>
+          <div>
+            <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900">Study Progress</h1>
+            <p className="text-xs sm:text-sm text-slate-600">
+              Choose which handout or module you want to inspect for due flashcards, quiz accuracy, and topic mastery.
+            </p>
+          </div>
+        </div>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 shadow-xs space-y-4" aria-label="Choose handout or module for progress">
+          <h2 className="text-sm sm:text-base font-bold text-slate-900">Select a handout or module</h2>
+          {documents.length === 0 ? (
+            <StatePanel
+              variant="empty"
+              title="No modules available yet"
+              description="Upload or paste at least one module in your Library to track your study progress."
+              actionLabel="Go to Library"
+              onAction={onGoToLibrary}
+            />
+          ) : (
+            <>
+              <div className="space-y-2">
+                {documents.map((d) => {
+                  const currentChoice = pickerValue ?? documents[0]?.id;
+                  const checked = currentChoice === d.id;
+                  return (
+                    <label
+                      key={d.id}
+                      className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border text-sm cursor-pointer transition ${
+                        checked
+                          ? 'bg-amber-50 border-amber-400 font-semibold text-slate-900'
+                          : 'border-slate-200 hover:bg-slate-50 text-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <input
+                          type="radio"
+                          name="progress-module-picker"
+                          checked={checked}
+                          onChange={() => setPickerValue(d.id)}
+                          className="h-4 w-4 accent-amber-600 shrink-0"
+                        />
+                        <span className="truncate" translate="no">{d.title}</span>
+                      </div>
+                      <span className="text-xs text-slate-500 shrink-0">
+                        {d.topics_count || 1} {d.topics_count === 1 ? 'topic' : 'topics'}
+                      </span>
+                    </label>
+                  );
+                })}
+
+                <label
+                  className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border text-sm cursor-pointer transition ${
+                    pickerValue === 'all'
+                      ? 'bg-amber-50 border-amber-400 font-semibold text-slate-900'
+                      : 'border-slate-200 hover:bg-slate-50 text-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <input
+                      type="radio"
+                      name="progress-module-picker"
+                      checked={pickerValue === 'all'}
+                      onChange={() => setPickerValue('all')}
+                      className="h-4 w-4 accent-amber-600 shrink-0"
+                    />
+                    <span>All handouts &amp; modules (combined overview)</span>
+                  </div>
+                  <span className="text-xs text-slate-500 shrink-0">{documents.length} total</span>
+                </label>
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setSelectedDocId(pickerValue ?? documents[0]?.id ?? 'all')}
+                  className="min-h-[42px] inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 hover:bg-amber-600 px-5 py-2 text-xs sm:text-sm font-bold text-white shadow-xs"
+                >
+                  <span>View Progress</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </>
+          )}
+        </section>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -96,7 +201,7 @@ export default function ProgressView({
       title: `Review ${stats.cards_due_today} due ${stats.cards_due_today === 1 ? 'flashcard' : 'flashcards'}`,
       description: 'Clearing your spaced-repetition queue today strengthens long-term memory before items fade.',
       actionLabel: 'Start due review',
-      onAction: onStartDueCards,
+      onAction: () => onStartDueCards(activeFilterDocId || stats.weak_topics?.[0]?.document_id || documents[0]?.id),
     };
   } else if (topWeak) {
     recommendation = {
@@ -123,16 +228,30 @@ export default function ProgressView({
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
       {/* Editorial Header */}
       <section className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-5">
-        <div className="space-y-1.5 max-w-2xl">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-900 border border-amber-200">
-            <BarChart3 className="w-3.5 h-3.5" />
-            <span>Progress Overview</span>
-          </span>
+        <div className="space-y-2 max-w-2xl">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-900 border border-amber-200">
+              <BarChart3 className="w-3.5 h-3.5" />
+              <span>Progress Overview</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setPickerValue(selectedDocId);
+                setSelectedDocId(null);
+              }}
+              className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 transition"
+            >
+              Change handout / module
+            </button>
+          </div>
           <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900">
-            Your Study Dashboard
+            {activeDoc ? activeDoc.title : 'All Handouts & Modules'}
           </h1>
           <p className="text-sm text-slate-600 leading-relaxed">
-            Track your daily consistency, spaced-repetition queue, and per-topic mastery across all modules.
+            {activeDoc
+              ? 'Tracking your due flashcards, quiz accuracy, and topic mastery for this module.'
+              : 'Track your daily consistency, spaced-repetition queue, and per-topic mastery across all modules.'}
           </p>
         </div>
 
@@ -210,7 +329,7 @@ export default function ProgressView({
             {stats.cards_due_today > 0 ? (
               <button
                 type="button"
-                onClick={onStartDueCards}
+                onClick={() => onStartDueCards(activeFilterDocId || stats.weak_topics?.[0]?.document_id || documents[0]?.id)}
                 className="text-xs text-amber-800 font-bold hover:underline inline-flex items-center gap-1 mt-1"
               >
                 <span>Study now</span>

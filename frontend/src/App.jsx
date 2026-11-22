@@ -6,7 +6,7 @@ import StatePanel from './components/StatePanel';
 import UpdateModal from './components/UpdateModal';
 import UploadLibraryView from './views/UploadLibraryView';
 import { useAuth } from './components/AuthGate';
-import { CloudOff, WifiOff, X } from 'lucide-react';
+import { CloudOff, Layers, ArrowRight, BookOpen, WifiOff, X } from 'lucide-react';
 import { getDocuments, checkHealth } from './services/api';
 import { usePetEmoji } from './components/pets';
 import { isNativePlatform, isOnline, onNetworkChange, registerBackHandler } from './platform/index';
@@ -56,6 +56,7 @@ export default function App() {
   const [networkOnline, setNetworkOnline] = useState(() => isOnline());
   const [updateInfo, setUpdateInfo] = useState(null);
   const [toast, setToast] = useState(null);
+  const [pickerDocId, setPickerDocId] = useState(null);
 
   useEffect(() => onNetworkChange((connected) => setNetworkOnline(connected)), []);
 
@@ -103,7 +104,7 @@ export default function App() {
       setCurrentDoc((prev) => {
         if (prev && docs.some((d) => d.id === prev.id)) return docs.find((d) => d.id === prev.id);
         if (hashDocId && docs.some((d) => d.id === hashDocId)) return docs.find((d) => d.id === hashDocId);
-        return docs[0] || null;
+        return null;
       });
     } catch (err) {
       console.error('Could not fetch documents:', err);
@@ -189,6 +190,7 @@ export default function App() {
         activeTab={activeView}
         onSelectTab={(tab) => {
           if (tab === 'library') {
+            setCurrentDoc(null);
             setActiveView('library');
           } else if (tab === 'dashboard') {
             setActiveView('dashboard');
@@ -196,7 +198,10 @@ export default function App() {
             setActiveView('exam');
           } else if (tab === 'admin' && user?.role === 'admin') {
             setActiveView('admin');
-          } else if (tab === 'document' && currentDoc) {
+          } else if (tab === 'document') {
+            if (!currentDoc && documents.length > 0 && !pickerDocId) {
+              setPickerDocId(documents[0].id);
+            }
             setActiveView('document');
           }
         }}
@@ -254,10 +259,15 @@ export default function App() {
 
           {activeView === 'dashboard' && (
             <ProgressView
-              onStartDueCards={() => handleStartFlashcards(currentDoc?.id, null, true)}
+              documents={documents}
+              initialDocumentId={currentDoc?.id || null}
+              onStartDueCards={(docId) => handleStartFlashcards(docId || currentDoc?.id, null, true)}
               onStartWeakSpotQuiz={(docId) => handleStartQuiz(docId || currentDoc?.id, null, true)}
               onSelectTopicQuiz={(docId, topicId) => handleStartQuiz(docId, topicId, false)}
-              onGoToLibrary={() => setActiveView('library')}
+              onGoToLibrary={() => {
+                setCurrentDoc(null);
+                setActiveView('library');
+              }}
               showToast={showToast}
             />
           )}
@@ -266,16 +276,101 @@ export default function App() {
 
           {activeView === 'admin' && user?.role === 'admin' && <AdminView showToast={showToast} />}
 
-          {activeView === 'document' && currentDoc && (
-            <DocumentView
-              documentId={currentDoc.id}
-              onBack={() => setActiveView('library')}
-              onStartFlashcards={(docId, topicId) => handleStartFlashcards(docId, topicId, false)}
-              onStartQuiz={(docId, topicId) => handleStartQuiz(docId, topicId, false)}
-              onStartChat={(docId) => handleStartChat(docId)}
-              onStartWeakSpotQuiz={(docId) => handleStartQuiz(docId, null, true)}
-              showToast={showToast}
-            />
+          {activeView === 'document' && (
+            currentDoc ? (
+              <DocumentView
+                documentId={currentDoc.id}
+                onBack={() => {
+                  setCurrentDoc(null);
+                  setActiveView('library');
+                }}
+                onChangeModule={() => {
+                  setPickerDocId(currentDoc.id);
+                  setCurrentDoc(null);
+                }}
+                onStartFlashcards={(docId, topicId) => handleStartFlashcards(docId, topicId, false)}
+                onStartQuiz={(docId, topicId) => handleStartQuiz(docId, topicId, false)}
+                onStartChat={(docId) => handleStartChat(docId)}
+                onStartWeakSpotQuiz={(docId) => handleStartQuiz(docId, null, true)}
+                showToast={showToast}
+              />
+            ) : (
+              <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 text-amber-900 shrink-0">
+                    <Layers className="w-5 h-5" />
+                  </span>
+                  <div>
+                    <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900">Study a Module</h1>
+                    <p className="text-xs sm:text-sm text-slate-600">
+                      Choose which handout or module from your library you want to go through.
+                    </p>
+                  </div>
+                </div>
+
+                <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 shadow-xs space-y-4" aria-label="Choose a handout or module">
+                  <h2 className="text-sm sm:text-base font-bold text-slate-900">Select a handout or module</h2>
+                  {documents.length === 0 ? (
+                    <StatePanel
+                      variant="empty"
+                      icon={<BookOpen className="w-5 h-5" />}
+                      title="No modules in your library yet"
+                      description="Upload a PDF/Word file or paste your lecture notes in the Library first."
+                      actionLabel="Go to Library"
+                      onAction={() => setActiveView('library')}
+                    />
+                  ) : (
+                    <>
+                      <div className="space-y-2">
+                        {documents.map((d) => {
+                          const selectedId = pickerDocId ?? documents[0]?.id;
+                          const checked = selectedId === d.id;
+                          return (
+                            <label
+                              key={d.id}
+                              className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border text-sm cursor-pointer transition ${
+                                checked
+                                  ? 'bg-amber-50 border-amber-400 font-semibold text-slate-900'
+                                  : 'border-slate-200 hover:bg-slate-50 text-slate-800'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <input
+                                  type="radio"
+                                  name="module-picker"
+                                  checked={checked}
+                                  onChange={() => setPickerDocId(d.id)}
+                                  className="h-4 w-4 accent-amber-600 shrink-0"
+                                />
+                                <span className="truncate" translate="no">{d.title}</span>
+                              </div>
+                              <span className="text-xs text-slate-500 shrink-0">
+                                {d.topics_count || 1} {d.topics_count === 1 ? 'topic' : 'topics'}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const targetId = pickerDocId ?? documents[0]?.id;
+                            const doc = documents.find((d) => d.id === targetId);
+                            if (doc) handleSelectDoc(doc);
+                          }}
+                          className="min-h-[42px] inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 hover:bg-amber-600 px-5 py-2 text-xs sm:text-sm font-bold text-white shadow-xs"
+                        >
+                          <span>Proceed to Module</span>
+                          <ArrowRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </section>
+              </div>
+            )
           )}
 
           {activeView === 'flashcards' && currentDoc && (

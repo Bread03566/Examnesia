@@ -28,6 +28,7 @@ const SUMMARY_LENGTHS = [
 export default function DocumentView({
   documentId,
   onBack,
+  onChangeModule,
   onStartFlashcards,
   onStartQuiz,
   onStartChat,
@@ -165,6 +166,15 @@ export default function DocumentView({
               <span className="text-xs text-slate-600">
                 {doc.topics?.length || 0} {doc.topics?.length === 1 ? 'Topic' : 'Topics'} · {wordCount.toLocaleString()} words
               </span>
+              {onChangeModule && (
+                <button
+                  type="button"
+                  onClick={onChangeModule}
+                  className="ml-auto px-2.5 py-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 transition"
+                >
+                  Change handout / module
+                </button>
+              )}
             </div>
             <h1 className="text-lg sm:text-2xl font-extrabold text-slate-900 mt-1 leading-snug break-words">
               {doc.title}
