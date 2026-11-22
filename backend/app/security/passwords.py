@@ -13,7 +13,7 @@ from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatc
 
 from app.config import settings
 
-MIN_LENGTH = 10
+MIN_LENGTH = 8
 MAX_LENGTH = 128
 
 _COMMON = {
@@ -41,6 +41,10 @@ def validate_password(password: str, username: str) -> None:
         raise ValueError("That password is too common. Please choose a less guessable one.")
     if username and password.lower() == username.lower():
         raise ValueError("Password cannot be the same as your email or username.")
+    if not any(ch.isupper() for ch in password):
+        raise ValueError("Password must include at least one uppercase letter.")
+    if not any(not ch.isalnum() and not ch.isspace() for ch in password):
+        raise ValueError("Password must include at least one special character (e.g. !@#$%).")
 
 
 def _hash_sync(password: str) -> str:

@@ -108,7 +108,7 @@ export default function AccountModal({ user, onClose }) {
         <PasswordField label={action === 'password' ? 'Current password' : 'Your password'} value={current} onChange={setCurrent} autoComplete="current-password" />
         {action === 'password' && (
           <>
-            <PasswordField label="New password" value={next} onChange={setNext} autoComplete="new-password" />
+            <PasswordField label="New password" value={next} onChange={setNext} autoComplete="new-password" hint="At least 8 characters, with 1 uppercase letter and 1 special character." />
             <PasswordField label="Confirm new password" value={confirm} onChange={setConfirm} autoComplete="new-password" />
           </>
         )}

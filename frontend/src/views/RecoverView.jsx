@@ -148,7 +148,7 @@ export default function RecoverView({ onBack }) {
               onChange={setPassword}
               error={errors.password}
               autoComplete="new-password"
-              hint="At least 10 characters. Longer is safer."
+              hint="At least 8 characters, with 1 uppercase letter and 1 special character."
             />
             <PasswordField
               label="Confirm new password"

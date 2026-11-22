@@ -157,7 +157,7 @@ export default function AuthView({ onRecover, onPrivacy }) {
             onChange={setPassword}
             error={errors.password}
             autoComplete={isRegister ? 'new-password' : 'current-password'}
-            hint={isRegister ? 'At least 10 characters. Longer is safer.' : undefined}
+            hint={isRegister ? 'At least 8 characters, with 1 uppercase letter and 1 special character.' : undefined}
           />
           {isRegister && (
             <PasswordField label="Confirm password" value={confirm} onChange={setConfirm} error={errors.confirm} autoComplete="new-password" />

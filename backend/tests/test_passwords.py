@@ -8,8 +8,16 @@ from argon2 import PasswordHasher
 from app.security import passwords
 
 
-@pytest.mark.parametrize("pw,ok", [("a" * 9, False), ("g7!kQ2mZp9", True), ("x7Kq" * 32, True), ("x7Kq" * 32 + "a", False)])
-def test_length_boundaries(pw, ok):
+@pytest.mark.parametrize("pw,ok", [
+    ("Aa1!aaa", False),              # 7 chars: too short
+    ("Aa1!aaaa", True),              # 8 chars with uppercase + special
+    ("g7!kQ2mZp9", True),
+    ("x7K!" * 32, True),             # 128 chars
+    ("x7K!" * 32 + "a", False),      # 129 chars: too long
+    ("lowercase!123", False),        # missing uppercase
+    ("Uppercase123", False),         # missing special character
+])
+def test_length_and_character_rules(pw, ok):
     if ok:
         passwords.validate_password(pw, "someone")
     else:
@@ -17,8 +25,8 @@ def test_length_boundaries(pw, ok):
             passwords.validate_password(pw, "someone")
 
 
-def test_exactly_10_and_128_are_accepted():
-    passwords.validate_password("Zq7!mK2pXw", "u")           # 10
+def test_exactly_8_and_128_are_accepted():
+    passwords.validate_password("Zq7!mK2p", "u")                 # 8
     passwords.validate_password(("Zq7!mK2pXw" * 13)[:128], "u")  # 128
 
 

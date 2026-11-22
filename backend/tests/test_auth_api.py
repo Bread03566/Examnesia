@@ -108,8 +108,10 @@ def test_overlong_password_rejected_before_any_hashing(client, monkeypatch):
 
 @pytest.mark.parametrize("over,needle", [
     ({"confirm_password": "different-Pass-1"}, "match"),
-    ({"password": "short1!", "confirm_password": "short1!"}, "10"),
+    ({"password": "Short1!", "confirm_password": "Short1!"}, "8"),
     ({"password": "password123", "confirm_password": "password123"}, "common"),
+    ({"password": "nouppercase!1", "confirm_password": "nouppercase!1"}, "uppercase"),
+    ({"password": "NoSpecialChar1", "confirm_password": "NoSpecialChar1"}, "special"),
     ({"email": "not-a-gmail"}, "gmail"),
     ({"email": "student@yahoo.com"}, "gmail"),
     ({"email": "bad..dots@gmail.com"}, "gmail"),
