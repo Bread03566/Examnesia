@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { CalendarDays, GraduationCap, Loader2, ClipboardCheck, CheckCircle2, XCircle } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { CalendarDays, GraduationCap, Loader2, ClipboardCheck, CheckCircle2, XCircle, Clock, Timer } from 'lucide-react';
 import StatePanel from '../components/StatePanel';
 import { getExamPlan, getExamPractice, submitExam } from '../services/api';
 
@@ -9,6 +9,20 @@ const STATUS_STYLE = {
   mastered: 'bg-emerald-50 text-emerald-800 border border-emerald-200',
   untested: 'bg-slate-100 text-slate-700 border border-slate-200',
 };
+
+const TIMER_OPTIONS = [
+  { minutes: 10, label: '10 min' },
+  { minutes: 15, label: '15 min' },
+  { minutes: 20, label: '20 min' },
+  { minutes: 0, label: 'No timer' },
+];
+
+function formatTimer(seconds) {
+  if (seconds === null) return null;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
 
 function PlanDays({ plan }) {
   return (
@@ -45,16 +59,23 @@ function PlanDays({ plan }) {
 }
 
 function ExamQuestionCard({ q, index, total, value, onChange }) {
-  const idName = `q-${q.id}`;
+  const idName = `exam-q-${q.id}`;
+  const headingId = `exam-q-title-${q.id}`;
   return (
-    <fieldset className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-xs space-y-3">
-      <div className="flex items-center justify-between gap-2 text-xs text-slate-600">
+    <div
+      role="group"
+      aria-labelledby={headingId}
+      className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-xs space-y-3"
+    >
+      <div className="flex items-center justify-between gap-2 text-xs text-slate-600 pb-2 border-b border-slate-100">
         <span className="font-bold text-amber-800">Question {index + 1} of {total}</span>
-        <span className="truncate">{q.topic_title}</span>
+        <span className="truncate max-w-[60%] text-right">{q.topic_title}</span>
       </div>
-      <legend className="text-sm sm:text-base font-bold text-slate-900 leading-snug">
+
+      <h3 id={headingId} className="text-sm sm:text-base font-bold text-slate-900 leading-snug">
         {q.question_text}
-      </legend>
+      </h3>
+
       {q.question_type === 'identification' ? (
         <input
           type="text"
@@ -91,21 +112,24 @@ function ExamQuestionCard({ q, index, total, value, onChange }) {
           })}
         </div>
       )}
-    </fieldset>
+    </div>
   );
 }
 
 export default function ExamPrepView({ documents, showToast }) {
   const [selected, setSelected] = useState([]);
   const [days, setDays] = useState(7);
+  const [timerMinutes, setTimerMinutes] = useState(15);
+  const [secondsRemaining, setSecondsRemaining] = useState(null);
   const [plan, setPlan] = useState(null);
   const [exam, setExam] = useState(null);
   const [answers, setAnswers] = useState({});
   const [report, setReport] = useState(null);
   const [busy, setBusy] = useState('');
+  const submittingRef = useRef(false);
 
   const toggle = (id) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
-  const run = async (label, fn) => {
+  const run = useCallback(async (label, fn) => {
     setBusy(label);
     try {
       await fn();
@@ -114,12 +138,13 @@ export default function ExamPrepView({ documents, showToast }) {
     } finally {
       setBusy('');
     }
-  };
+  }, [showToast]);
 
   const buildPlan = () =>
     run('plan', async () => {
       setReport(null);
       setExam(null);
+      setSecondsRemaining(null);
       setPlan(await getExamPlan(selected, Number(days)));
     });
 
@@ -131,24 +156,60 @@ export default function ExamPrepView({ documents, showToast }) {
       if (!res.questions.length) {
         showToast?.('error', res.note || 'No questions available yet for the selected modules.');
         setExam(null);
+        setSecondsRemaining(null);
         return;
       }
       setExam(res.questions);
+      setSecondsRemaining(timerMinutes > 0 ? timerMinutes * 60 : null);
     });
 
-  const finish = () =>
-    run('submit', async () => {
+  const finish = useCallback(
+    async (isTimeout = false) => {
+      if (!exam || submittingRef.current) return;
       const payload = exam
         .map((q) => ({ question_id: q.id, ...(answers[q.id] || {}) }))
         .filter((a) => a.selected_index !== undefined || a.text_answer);
-      if (!payload.length) {
+
+      if (!payload.length && !isTimeout) {
         showToast?.('error', 'Answer at least one question before submitting.');
         return;
       }
-      setReport(await submitExam(payload));
-      setExam(null);
-      setPlan(await getExamPlan(selected, Number(days)));
-    });
+
+      submittingRef.current = true;
+      setSecondsRemaining(null);
+      setBusy('submit');
+      try {
+        if (!payload.length && isTimeout) {
+          showToast?.('info', 'Time is up! No answers were submitted.');
+          setExam(null);
+          return;
+        }
+        if (isTimeout) {
+          showToast?.('info', 'Time is up! Submitting your practice exam...');
+        }
+        setReport(await submitExam(payload));
+        setExam(null);
+        setPlan(await getExamPlan(selected, Number(days)));
+      } catch (e) {
+        showToast?.('error', e.message || 'Could not submit practice exam.');
+      } finally {
+        submittingRef.current = false;
+        setBusy('');
+      }
+    },
+    [exam, answers, selected, days, showToast]
+  );
+
+  // Countdown timer for active practice exam
+  useEffect(() => {
+    if (!exam || secondsRemaining === null) return undefined;
+    if (secondsRemaining <= 0) {
+      finish(true);
+      return undefined;
+    }
+    const tick = setTimeout(() => setSecondsRemaining((prev) => (prev !== null ? prev - 1 : null)), 1000);
+    return () => clearTimeout(tick);
+  }, [exam, secondsRemaining, finish]);
 
   const answeredCount = exam
     ? exam.filter((q) => answers[q.id]?.selected_index !== undefined || Boolean(answers[q.id]?.text_answer?.trim())).length
@@ -163,7 +224,7 @@ export default function ExamPrepView({ documents, showToast }) {
         <div>
           <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900">Exam Prep</h1>
           <p className="text-xs sm:text-sm text-slate-600">
-            Combine multiple modules into a prioritized countdown plan and practice exam.
+            Combine multiple modules into a prioritized study plan and a timed mock exam (answers are graded all at once at the end).
           </p>
         </div>
       </div>
@@ -231,39 +292,87 @@ export default function ExamPrepView({ documents, showToast }) {
         )}
       </section>
 
-      {/* Step 2: Study Plan */}
+      {/* Step 2: Study Plan & Practice Exam Launcher */}
       {plan && (
         <section className="space-y-4" aria-label="Study plan">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h2 className="text-base font-bold text-slate-900">2. Your Study Plan</h2>
-              <p className="text-xs text-slate-600 mt-0.5">
-                {plan.summary.topics} topics: {plan.summary.weak} weak, {plan.summary.reviewing} reviewing,{' '}
-                {plan.summary.untested} untested, {plan.summary.mastered} mastered.
-              </p>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-xs space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">2. Your Study Plan</h2>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  {plan.summary.topics} topics: {plan.summary.weak} weak, {plan.summary.reviewing} reviewing,{' '}
+                  {plan.summary.untested} untested, {plan.summary.mastered} mastered.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={startExam}
+                disabled={busy === 'exam'}
+                className="min-h-[42px] inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 hover:bg-amber-600 px-4 py-2 text-xs sm:text-sm font-bold text-white shadow-xs shrink-0"
+              >
+                {busy === 'exam' ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardCheck className="w-4 h-4" />}
+                <span>Start Practice Exam</span>
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={startExam}
-              disabled={busy === 'exam'}
-              className="min-h-[42px] inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs sm:text-sm font-bold text-slate-900 hover:bg-slate-50 shadow-xs"
-            >
-              {busy === 'exam' ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardCheck className="w-4 h-4 text-amber-700" />}
-              <span>Start Practice Exam</span>
-            </button>
+
+            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+                <Timer className="w-3.5 h-3.5 text-amber-700" />
+                <span>Exam Timer:</span>
+              </span>
+              <div className="inline-flex flex-wrap gap-1.5">
+                {TIMER_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.minutes}
+                    type="button"
+                    onClick={() => setTimerMinutes(opt.minutes)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
+                      timerMinutes === opt.minutes
+                        ? 'bg-amber-100 border-amber-400 text-amber-950'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
+
           <PlanDays plan={plan} />
         </section>
       )}
 
-      {/* Step 3: Practice Exam */}
+      {/* Step 3: Practice Exam (Timed, Sticky Header, Full Sheet) */}
       {exam && (
         <section className="space-y-4" aria-label="Practice exam">
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs space-y-2">
-            <div className="flex items-center justify-between text-xs font-bold text-slate-700">
-              <span>3. Practice Exam ({exam.length} questions)</span>
-              <span>{answeredCount} / {exam.length} answered</span>
+          <div className="sticky top-14 md:top-16 z-30 bg-white/95 backdrop-blur-md rounded-2xl border border-slate-200 p-4 shadow-sm space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs sm:text-sm font-bold text-slate-900">
+                  3. Practice Exam ({exam.length} questions)
+                </span>
+                <span className="text-xs font-semibold text-slate-600">
+                  · {answeredCount}/{exam.length} answered
+                </span>
+              </div>
+
+              {secondsRemaining !== null && (
+                <div
+                  role="timer"
+                  aria-live="off"
+                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl border font-mono text-xs font-bold ${
+                    secondsRemaining < 60
+                      ? 'bg-rose-50 border-rose-300 text-rose-800 animate-pulse'
+                      : 'bg-amber-50 border-amber-200 text-amber-900'
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>{formatTimer(secondsRemaining)}</span>
+                </div>
+              )}
             </div>
+
             <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
               <div
                 className="h-full bg-amber-500 rounded-full transition-all"
@@ -285,7 +394,7 @@ export default function ExamPrepView({ documents, showToast }) {
 
           <button
             type="button"
-            onClick={finish}
+            onClick={() => finish(false)}
             disabled={busy === 'submit'}
             className="w-full sm:w-auto min-h-[44px] inline-flex items-center justify-center gap-2 rounded-xl bg-amber-500 px-6 py-2.5 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-50 shadow-xs"
           >

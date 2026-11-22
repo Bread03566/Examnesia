@@ -66,7 +66,7 @@ export default function Navbar({ activeTab, onSelectTab, currentDoc }) {
           </button>
 
           {/* Desktop & Tablet Navigation */}
-          <nav aria-label="Primary navigation" className="hidden md:flex items-center gap-1.5 min-w-0">
+          <nav aria-label="Primary navigation" className="hidden md:flex items-center gap-1 lg:gap-1.5 min-w-0 flex-1 justify-center overflow-x-auto px-1">
             {navItems.map((item) => {
               const Icon = item.icon;
               return (
@@ -76,8 +76,8 @@ export default function Navbar({ activeTab, onSelectTab, currentDoc }) {
                   onClick={() => onSelectTab(item.id)}
                   aria-current={item.active ? 'page' : undefined}
                   title={item.title || item.label}
-                  className={`min-h-[38px] px-3.5 py-2 text-xs lg:text-sm font-semibold rounded-xl transition inline-flex items-center gap-1.5 shrink-0 whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 ${
-                    item.truncate ? 'max-w-[160px] lg:max-w-[210px]' : ''
+                  className={`min-h-[38px] px-2.5 lg:px-3.5 py-2 text-xs lg:text-sm font-semibold rounded-xl transition inline-flex items-center gap-1.5 shrink-0 whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 ${
+                    item.truncate ? 'max-w-[120px] xl:max-w-[165px]' : ''
                   } ${
                     item.active
                       ? 'bg-amber-500 text-white shadow-xs'
@@ -96,7 +96,7 @@ export default function Navbar({ activeTab, onSelectTab, currentDoc }) {
             <button
               type="button"
               onClick={() => setAccountOpen(true)}
-              className="min-h-[40px] px-2.5 py-1.5 text-xs sm:text-sm font-semibold rounded-xl text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1.5 max-w-[140px] focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+              className="min-h-[40px] px-2.5 py-1.5 text-xs sm:text-sm font-semibold rounded-xl text-slate-700 hover:bg-slate-100 inline-flex items-center gap-1.5 max-w-[120px] xl:max-w-[140px] focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
               title="Account settings"
               aria-label="Account settings"
             >
