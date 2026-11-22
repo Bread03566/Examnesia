@@ -18,16 +18,22 @@
       --border: #DDD3CD;
       --text: #30231A;
       --muted: #5E4A3C;
+      color-scheme: light;
     }
-    * { box-sizing: border-box; }
+    *, *::before, *::after { box-sizing: border-box; }
     body {
       margin: 0;
       min-height: 100vh;
+      min-height: 100dvh;
       background: var(--mist);
       color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       line-height: 1.55;
-      padding: 24px 16px 48px;
+      -webkit-font-smoothing: antialiased;
+      padding: calc(20px + env(safe-area-inset-top)) 16px calc(40px + env(safe-area-inset-bottom));
+    }
+    @media (min-width: 600px) {
+      body { padding: calc(28px + env(safe-area-inset-top)) 24px calc(48px + env(safe-area-inset-bottom)); }
     }
     .container {
       max-width: 44rem;
@@ -35,26 +41,33 @@
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 24px;
-      padding: 28px 24px;
+      padding: 24px 18px;
+      box-shadow: 0 4px 14px rgba(42, 31, 23, 0.06);
     }
-    @media (min-width: 640px) {
+    @media (min-width: 600px) {
       .container { padding: 36px 36px; }
     }
     a.back {
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      font-size: 0.85rem;
+      min-height: 44px;
+      padding: 6px 10px 6px 4px;
+      margin-left: -4px;
+      border-radius: 10px;
+      font-size: 0.88rem;
       font-weight: 700;
       color: var(--muted);
       text-decoration: none;
     }
-    a.back:hover { color: var(--cocoa); }
+    a.back:hover { color: var(--cocoa); background: var(--subtle); }
     h1 {
-      margin: 12px 0 4px;
-      font-size: 1.5rem;
+      margin: 8px 0 6px;
+      font-size: clamp(1.35rem, 1.1rem + 1vw, 1.75rem);
+      line-height: 1.25;
       font-weight: 800;
       color: var(--text);
+      text-wrap: balance;
     }
     .lead {
       margin: 0 0 20px;
@@ -68,19 +81,20 @@
     }
     h2 {
       margin: 0 0 6px;
-      font-size: 1rem;
+      font-size: 1.02rem;
       font-weight: 800;
       color: var(--text);
     }
     p, li {
       font-size: 0.92rem;
       color: var(--muted);
+      text-wrap: pretty;
     }
     p { margin: 6px 0; }
     ul { margin: 6px 0; padding-left: 20px; }
     li { margin: 4px 0; }
     strong { color: var(--text); }
-    :focus-visible { outline: 3px solid var(--mocha); outline-offset: 2px; }
+    :focus-visible { outline: 3px solid var(--cocoa); outline-offset: 2px; }
   </style>
 </head>
 <body>

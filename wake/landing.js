@@ -1,7 +1,8 @@
 // Public Landing Page script for Examnesia (GitHub Pages).
 //
-// 1. Fetches ./release/latest.json to render real Android APK release metadata (never invents download links).
-// 2. Wakes the free-tier Render instance (__API_ORIGIN__/api/health) with a live progress bar when the user
+// 1. Controls the responsive mobile/tablet navigation menu with full keyboard and outside-click support.
+// 2. Fetches ./release/latest.json to render real Android APK release metadata (never invents download links).
+// 3. Wakes the free-tier Render instance (__API_ORIGIN__/api/health) with a live progress bar when the user
 //    clicks "Open Web App" (or automatically when ?wake=1 is in the URL), then redirects once healthy.
 
 (function () {
@@ -12,6 +13,7 @@
   var timer = null;
   var ticker = null;
   var done = false;
+  var lastModalTrigger = null;
 
   function $(id) {
     return document.getElementById(id);
@@ -21,6 +23,54 @@
     var n = Number(bytes);
     if (!n || n <= 0) return null;
     return (n / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  // ==================== Responsive Mobile / Tablet Navigation ====================
+  var menuToggle = $("menu-toggle");
+  var mobileMenu = $("mobile-menu");
+  var siteHeader = $("site-header");
+
+  function setMenuOpen(open, restoreFocus) {
+    if (!menuToggle || !mobileMenu) return;
+    menuToggle.setAttribute("aria-expanded", open ? "true" : "false");
+    menuToggle.setAttribute("aria-label", open ? "Close menu" : "Open menu");
+    mobileMenu.hidden = !open;
+    if (!open && restoreFocus) {
+      menuToggle.focus();
+    }
+  }
+
+  if (menuToggle && mobileMenu) {
+    menuToggle.addEventListener("click", function () {
+      var isOpen = menuToggle.getAttribute("aria-expanded") === "true";
+      setMenuOpen(!isOpen, false);
+    });
+
+    var mobileLinks = mobileMenu.querySelectorAll("[data-mobile-nav-link]");
+    for (var m = 0; m < mobileLinks.length; m++) {
+      mobileLinks[m].addEventListener("click", function () {
+        setMenuOpen(false, false);
+      });
+    }
+
+    document.addEventListener("click", function (e) {
+      if (mobileMenu.hidden) return;
+      if (siteHeader && !siteHeader.contains(e.target)) {
+        setMenuOpen(false, false);
+      }
+    });
+
+    var desktopMq = window.matchMedia ? window.matchMedia("(min-width: 1024px)") : null;
+    if (desktopMq) {
+      var onMediaChange = function (ev) {
+        if (ev.matches) setMenuOpen(false, false);
+      };
+      if (typeof desktopMq.addEventListener === "function") {
+        desktopMq.addEventListener("change", onMediaChange);
+      } else if (typeof desktopMq.addListener === "function") {
+        desktopMq.addListener(onMediaChange);
+      }
+    }
   }
 
   // ==================== Release Metadata (./release/latest.json) ====================
@@ -120,6 +170,14 @@
   }
 
   // ==================== Render Free Instance Wake-Up Modal ====================
+  function setBackgroundInert(isInert) {
+    var ids = ["site-header", "main-content", "site-footer"];
+    for (var i = 0; i < ids.length; i++) {
+      var el = $(ids[i]);
+      if (el) el.inert = isInert;
+    }
+  }
+
   function setProgress(ms) {
     var s = Math.min(90, Math.round(ms / 1000));
     var fill = $("wake-fill");
@@ -177,12 +235,26 @@
     if (!done) timer = setTimeout(checkHealth, INTERVAL_MS);
   }
 
+  function isWakeModalOpen() {
+    var modal = $("wake-modal");
+    return Boolean(modal && modal.getAttribute("aria-hidden") === "false");
+  }
+
   function openWakeModal(e) {
-    if (e) e.preventDefault();
+    if (e) {
+      e.preventDefault();
+      lastModalTrigger = e.currentTarget || document.activeElement;
+    } else {
+      lastModalTrigger = document.activeElement;
+    }
+    setMenuOpen(false, false);
     var modal = $("wake-modal");
     if (!modal) return;
     modal.style.display = "flex";
     modal.setAttribute("aria-hidden", "false");
+    setBackgroundInert(true);
+    var closeBtnEl = $("wake-close");
+    if (closeBtnEl) closeBtnEl.focus();
     startWake();
   }
 
@@ -192,6 +264,11 @@
     if (!modal) return;
     modal.style.display = "none";
     modal.setAttribute("aria-hidden", "true");
+    setBackgroundInert(false);
+    if (lastModalTrigger && typeof lastModalTrigger.focus === "function") {
+      lastModalTrigger.focus();
+    }
+    lastModalTrigger = null;
   }
 
   function startWake() {
@@ -211,7 +288,7 @@
     checkHealth();
   }
 
-  // Wire buttons
+  // Wire buttons & keyboard shortcuts
   var triggers = document.querySelectorAll("[data-wake-trigger]");
   for (var i = 0; i < triggers.length; i++) {
     triggers[i].addEventListener("click", openWakeModal);
@@ -220,6 +297,22 @@
   if (retryBtn) retryBtn.addEventListener("click", startWake);
   var closeBtn = $("wake-close");
   if (closeBtn) closeBtn.addEventListener("click", closeWakeModal);
+
+  var wakeModal = $("wake-modal");
+  if (wakeModal) {
+    wakeModal.addEventListener("click", function (e) {
+      if (e.target === wakeModal) closeWakeModal();
+    });
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    if (isWakeModalOpen()) {
+      closeWakeModal();
+    } else if (mobileMenu && !mobileMenu.hidden) {
+      setMenuOpen(false, true);
+    }
+  });
 
   loadReleaseMetadata();
 
