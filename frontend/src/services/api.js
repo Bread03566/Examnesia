@@ -325,7 +325,7 @@ export const withdrawGeminiConsent = () => consentCall("DELETE", "/gemini");
 export async function exportMyData() {
   const res = await authFetch(`${API_BASE}/api/auth/export`);
   if (!res.ok) throw new Error("Could not download your data. Please try again.");
-  await saveJsonDownload(await res.blob(), "kabisado-my-data.json");
+  await saveJsonDownload(await res.blob(), "examnesia-my-data.json");
 }
 
 // ==================== Admin (the server enforces the role; the UI only hides the tab) ====================

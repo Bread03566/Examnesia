@@ -1,4 +1,4 @@
-// Public Landing Page script for Kabisado (GitHub Pages).
+// Public Landing Page script for Examnesia (GitHub Pages).
 //
 // 1. Fetches ./release/latest.json to render real Android APK release metadata (never invents download links).
 // 2. Wakes the free-tier Render instance (__API_ORIGIN__/api/health) with a live progress bar when the user

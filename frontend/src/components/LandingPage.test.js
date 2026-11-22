@@ -25,7 +25,7 @@ describe('Public Landing Page (wake/)', () => {
     expect(indexHtml).toContain('id="install-guide"');
     expect(indexHtml).toContain('id="faq"');
     expect(indexHtml).toContain('./privacy.html');
-    expect(indexHtml).toContain('com.kabisado.app');
+    expect(indexHtml).toContain('com.examnesia.app');
   });
 
   it('enforces a strict Content-Security-Policy without inline scripts and preserves the /api/health wake flow', () => {

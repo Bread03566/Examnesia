@@ -14,7 +14,7 @@ android {
     namespace = "com.kabisado.app"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.kabisado.app"
+        applicationId "com.examnesia.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         // versionCode = MAJOR*10000 + MINOR*100 + PATCH

@@ -2,6 +2,6 @@
 <resources>
     <string name="app_name">Examnesia</string>
     <string name="title_activity_main">Examnesia</string>
-    <string name="package_name">com.kabisado.app</string>
-    <string name="custom_url_scheme">com.kabisado.app</string>
+    <string name="package_name">com.examnesia.app</string>
+    <string name="custom_url_scheme">com.examnesia.app</string>
 </resources>

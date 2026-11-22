@@ -49,7 +49,7 @@ export default function AuthGate({ children }) {
         <Mascot mood="surprised" size="lg" />
         <h1 className="text-xl font-extrabold text-slate-900">Update required</h1>
         <p className="max-w-md text-sm text-slate-600">
-          {upgradeNotice.detail || 'A newer version of the Kabisado Android app is required to continue.'}
+          {upgradeNotice.detail || 'A newer version of the Examnesia Android app is required to continue.'}
         </p>
         <div className="flex flex-wrap items-center justify-center gap-3">
           <a

@@ -116,7 +116,7 @@ export function registerNativeFileSaver(fn) {
   customFileSaver = fn;
 }
 
-export async function saveJsonDownload(blob, filename = "kabisado-my-data.json") {
+export async function saveJsonDownload(blob, filename = "examnesia-my-data.json") {
   if (isNativePlatform() && customFileSaver) {
     return customFileSaver(blob, filename);
   }
@@ -133,7 +133,7 @@ export async function saveJsonDownload(blob, filename = "kabisado-my-data.json")
     await sharePlugin.share({
       title: filename,
       url: written.uri,
-      dialogTitle: "Save or share your Kabisado data",
+      dialogTitle: "Save or share your Examnesia data",
     });
     return;
   }
