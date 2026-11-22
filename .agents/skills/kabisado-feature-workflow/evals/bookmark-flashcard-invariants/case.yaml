@@ -1,0 +1,8 @@
+name: bookmark-flashcard-invariants
+description: Verifies that a new flashcard feature plan enforces Kabisado's auth, ownership (404), Alembic migration, and test/build verification invariants.
+expected:
+  - Mentions requiring authentication on the new /api/ route (anonymous 401 sweep in test_security_review.py).
+  - Mentions scoping by current_user.id and returning 404 for another student's flashcard.
+  - Mentions adding an Alembic migration under backend/migrations/ (not relying on AUTO_CREATE_SCHEMA in prod).
+  - Includes backend pytest and frontend lint/test/build verification commands.
+  - Uses the Summary / Files changed / Verification output structure.
