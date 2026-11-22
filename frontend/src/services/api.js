@@ -346,5 +346,11 @@ export const getAdminOverview = () => adminJson("/overview");
 export const getAdminStudents = (q = "") => adminJson(`/students?q=${encodeURIComponent(q)}`);
 export const getAdminAudit = () => adminJson("/audit");
 export const getAdminSystem = () => adminJson("/system");
+export const setAdminGeminiEnabled = (enabled) =>
+  adminJson("/system/gemini", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
 export const setStudentActive = (publicId, active) =>
   adminJson(`/students/${encodeURIComponent(publicId)}/${active ? "reactivate" : "deactivate"}`, { method: "POST" });

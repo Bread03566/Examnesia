@@ -6,14 +6,40 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.database import SessionLocal
 from app.models.models import AiUsage, Document, SystemStatus, User
 
 BACKUP_WARN_HOURS = 36
 DB_LIMIT_MB = 500  # Supabase Free database size
+GEMINI_STATUS_KEY = "gemini_enabled"
 
 
 def _now() -> datetime.datetime:
     return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+
+
+def get_gemini_override(db: Optional[Session] = None) -> Optional[bool]:
+    """Returns admin-controlled DB override (True/False), or None if not explicitly set."""
+    if db is not None:
+        row = db.get(SystemStatus, GEMINI_STATUS_KEY)
+        return None if row is None else (row.value == "true")
+    try:
+        with SessionLocal() as session:
+            row = session.get(SystemStatus, GEMINI_STATUS_KEY)
+            return None if row is None else (row.value == "true")
+    except Exception:
+        return None
+
+
+def is_gemini_enabled(db: Optional[Session] = None) -> bool:
+    override = get_gemini_override(db)
+    if override is not None:
+        return override
+    return bool(settings.GEMINI_ENABLED)
+
+
+def set_gemini_enabled(db: Session, enabled: bool) -> None:
+    record(db, GEMINI_STATUS_KEY, "true" if enabled else "false")
 
 
 def record(db: Session, key: str, value: str = "ok") -> None:
@@ -49,7 +75,8 @@ def system_report(db: Session) -> dict:
         "database": {"engine": db.bind.dialect.name, "size_mb": _database_size_mb(db), "limit_mb": DB_LIMIT_MB},
         "text_storage": {"used_mb": round(used / 1024 / 1024, 2), "budget_mb": settings.GLOBAL_TEXT_QUOTA_MB},
         "ai": {
-            "enabled": bool(settings.GEMINI_ENABLED),
+            "enabled": is_gemini_enabled(db),
+            "key_configured": bool((settings.GEMINI_API_KEY or "").strip()),
             "calls_today": db.query(func.count(AiUsage.id)).filter(AiUsage.created_at >= day_start).scalar(),
             "global_daily_limit": settings.GEMINI_GLOBAL_DAILY_CALLS,
             "consenting_students": db.query(func.count(User.id)).filter(User.gemini_consent.is_(True)).scalar(),

@@ -272,7 +272,7 @@ export default function App() {
             <div className="flex items-center gap-2">
               <span translate="no" className="notranslate font-bold text-slate-900">Kabisado {petEmoji}</span>
               <span>·</span>
-              <span>Study today, pass tomorrow.</span>
+              <span>From huh? to gotcha!</span>
             </div>
             <span className="text-slate-500">Privacy-first study companion</span>
           </div>

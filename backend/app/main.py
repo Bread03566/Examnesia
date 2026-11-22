@@ -39,7 +39,7 @@ def docs_urls(debug: bool) -> dict:
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    description="Backend API for Kabisado - AI-Powered Study App (Study today, pass tomorrow)",
+    description="Backend API for Kabisado - AI-Powered Study App (From huh? to gotcha!)",
     lifespan=lifespan,
     **docs_urls(settings.DEBUG),
 )
@@ -77,7 +77,7 @@ def health_check():
         "ai_configured": ai_service.is_api_configured(),
         "ai_provider": "gemini" if ai_service.is_api_configured() else "offline",
         "ai_model": settings.GEMINI_MODEL if ai_service.is_api_configured() else None,
-        "tagline": "Study today, pass tomorrow."
+        "tagline": "From huh? to gotcha!"
     }
 
 if not Path(settings.STATIC_DIR, "index.html").is_file():  # with a built frontend, "/" is the app
@@ -85,7 +85,7 @@ if not Path(settings.STATIC_DIR, "index.html").is_file():  # with a built fronte
     def root():
         return {
             "message": "Welcome to Kabisado API.",
-            "tagline": "Study today, pass tomorrow.",
+            "tagline": "From huh? to gotcha!",
             "docs_url": "/docs",
             "health": "/api/health"
         }

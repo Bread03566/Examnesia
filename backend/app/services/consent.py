@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import SessionLocal
 from app.models.models import AiUsage, ConsentLog, User
+from app.services import system_status
 
 CURRENT_POLICY_VERSION = "1"
 
@@ -64,11 +65,20 @@ def _within_budget(db: Session, user_id: int) -> bool:
 
 
 def _eligible(db: Session, user_id: Optional[int]) -> bool:
-    if user_id is None or not settings.GEMINI_ENABLED:
+    if user_id is None:
+        return False
+    override = system_status.get_gemini_override(db)
+    if override is False:
+        return False
+    if override is None and not settings.GEMINI_ENABLED:
         return False
     user = db.get(User, user_id)
+    if user is None or not user.is_active:
+        return False
+    if override is True:
+        return True
     return bool(
-        user is not None and user.is_active and user.age_band == "adult" and user.gemini_consent
+        user.age_band == "adult" and user.gemini_consent
         and user.consent_policy_version == CURRENT_POLICY_VERSION
     )
 

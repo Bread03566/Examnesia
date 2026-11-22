@@ -338,7 +338,7 @@ export const ANIMALS = {
   owl: {
     name: 'Kabi the owl',
     emoji: '🦉',
-    sounds: ['Hoo! Study today, pass tomorrow!', 'Hoo-hoo! Wise choice to review.', '*sleepy hoot* keep going', 'Hoo! That topic again?'],
+    sounds: ['Hoo! From huh? to gotcha!', 'Hoo-hoo! Wise choice to review.', '*sleepy hoot* keep going', 'Hoo! That topic again?'],
     eyes: [{ cx: 46, cy: 52, r: 9 }, { cx: 74, cy: 52, r: 9 }],
     eyeWhite: '#FEF08A',
     iris: '#1E1E1E',
@@ -384,7 +384,7 @@ function loadPrefs() {
     // Storage unavailable: fall through to defaults
   }
   // Small screens start with the corner pet tucked away so it never covers quiz buttons or the chat box
-  return { animal: 'cat', hidden: window.matchMedia?.('(max-width: 639px)').matches ?? false };
+  return { animal: 'owl', hidden: window.matchMedia?.('(max-width: 639px)').matches ?? false };
 }
 
 const readPrefs = () => (prefsCache ??= loadPrefs());

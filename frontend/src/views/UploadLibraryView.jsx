@@ -6,7 +6,6 @@ import {
   Trash2,
   BrainCircuit,
   HelpCircle,
-  Sparkles,
   Layers,
   ArrowRight,
   CheckCircle2,
@@ -21,21 +20,6 @@ import StatePanel from '../components/StatePanel';
 import { uploadDocumentFile, createDocumentFromText, deleteDocument } from '../services/api';
 
 const MAX_UPLOAD_MB = 10;
-
-const SAMPLE_MODULE = {
-  title: 'Lesson 1: The History of the Propaganda Movement and Jose Rizal',
-  text: `Chapter 1: The Philippines in the 19th Century
-In the 19th century, the Philippines was under the rule of the Spanish Empire. Discrimination was widespread between Spaniards (peninsulares and insulares) and native Filipinos (indios). The friars controlled large haciendas and held strong influence over the government and education. Even so, the opening of the Suez Canal in 1869 brought faster trade and the arrival of liberal ideas from Europe.
-
-Chapter 2: The Rise of the Propaganda Movement
-The Propaganda Movement was a peaceful movement formed by the ilustrados, Filipinos who had studied in Europe. Their main goal was not immediate revolution but assimilation, making the Philippines an official province of Spain. They called for equal rights under the law, freedom of the press, secularization of the parishes, and representation in the Spanish Cortes. The movement's official newspaper was La Solidaridad, founded by Graciano Lopez Jaena in Barcelona.
-
-Chapter 3: The Life and Works of Dr. Jose Rizal
-Dr. Jose Protacio Rizal Mercado y Alonso Realonda was born on June 19, 1861 in Calamba, Laguna. He is regarded as the National Hero of the Philippines because his brilliant writings awakened the nationalist spirit of the people. His first novel, Noli Me Tangere, was published in Berlin in 1887. It is a social novel that exposed the ills of society and the abuses of corrupt leaders. His second novel, El Filibusterismo, was published in Ghent in 1891 with a bolder and more revolutionary spirit.
-
-Chapter 4: The End of the Movement and the Rise of the Katipunan
-Although the Propaganda Movement did not win all the reforms it asked of the Spanish government, its writings became the spark that led Andres Bonifacio to found the KKK (Kataas-taasang, Kagalang-galangang Katipunan ng mga Anak ng Bayan) on July 7, 1892. This marked the beginning of the armed revolution for the complete independence of the motherland.`,
-};
 
 export default function UploadLibraryView({
   documents,
@@ -133,13 +117,6 @@ export default function UploadLibraryView({
     }
   };
 
-  const loadSampleHandout = () => {
-    setPasteTitle(SAMPLE_MODULE.title);
-    setPasteText(SAMPLE_MODULE.text);
-    setActiveTab('paste');
-    showToast('info', 'Sample handout loaded. Click "Save & Process" to try it.');
-  };
-
   const confirmDelete = async () => {
     if (!pendingDelete) return;
     setDeleting(true);
@@ -173,16 +150,6 @@ export default function UploadLibraryView({
             <p className="text-sm text-slate-600 leading-relaxed">
               Upload a PDF, Word document, or pasted notes to generate grounded summaries, spaced-repetition flashcards, and practice quizzes.
             </p>
-            <div className="pt-1">
-              <button
-                type="button"
-                onClick={loadSampleHandout}
-                className="min-h-[40px] inline-flex items-center gap-2 px-3.5 py-2 bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100 text-xs font-bold rounded-xl transition"
-              >
-                <Sparkles className="w-4 h-4 text-amber-700" />
-                <span>Load sample handout</span>
-              </button>
-            </div>
           </div>
 
           <div className="hidden sm:flex shrink-0">
@@ -325,13 +292,6 @@ export default function UploadLibraryView({
 
               <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 pt-1">
                 <button
-                  type="button"
-                  onClick={loadSampleHandout}
-                  className="min-h-[42px] px-4 py-2 text-xs font-semibold text-slate-700 border border-slate-300 hover:bg-slate-50 rounded-xl transition"
-                >
-                  Fill with sample handout
-                </button>
-                <button
                   type="submit"
                   disabled={isUploading}
                   className="min-h-[42px] px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs sm:text-sm rounded-xl shadow-xs transition disabled:opacity-50 inline-flex items-center justify-center gap-2"
@@ -417,9 +377,7 @@ export default function UploadLibraryView({
             variant="empty"
             icon={<BookOpen className="w-5 h-5" />}
             title="Your study library is empty"
-            description="Upload a PDF or Word handout above, paste your lecture notes, or try the sample handout to see how Kabisado works."
-            actionLabel="Load sample handout"
-            onAction={loadSampleHandout}
+            description="Upload a PDF or Word handout above, or paste your lecture notes to start studying."
           />
         ) : filteredDocuments.length === 0 ? (
           <StatePanel

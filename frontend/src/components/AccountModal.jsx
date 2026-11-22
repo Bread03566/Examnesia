@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Download, Loader2 } from 'lucide-react';
 import Modal from './Modal';
 import PasswordField from './PasswordField';
-import ConsentPanel from './ConsentPanel';
 import authClient from '../services/authClient';
 import { changePassword, deactivateAccount, deleteAccount, exportMyData } from '../services/api';
 
@@ -74,8 +73,6 @@ export default function AccountModal({ user, onClose }) {
         {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
         Download my data
       </button>
-
-      <ConsentPanel />
 
       <div role="tablist" className="mt-4 grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1">
         {tabs.map(([key, text]) => (

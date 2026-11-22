@@ -60,7 +60,7 @@ export default function Navbar({ activeTab, onSelectTab, currentDoc }) {
                 </span>
               </div>
               <p className="hidden lg:block text-[11px] font-medium text-slate-500 leading-tight">
-                Study today, pass tomorrow.
+                From huh? to gotcha!
               </p>
             </div>
           </button>

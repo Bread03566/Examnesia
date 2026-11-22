@@ -42,7 +42,7 @@ def test_system_panel_reports_usage_and_has_no_secrets(client, admin):
     body = client.get("/api/admin/system", headers=admin).json()
     assert set(body) == {"database", "text_storage", "ai", "backup", "version"}
     assert body["text_storage"]["budget_mb"] > 0 and body["text_storage"]["used_mb"] >= 0
-    assert set(body["ai"]) == {"enabled", "calls_today", "global_daily_limit", "consenting_students"}
+    assert set(body["ai"]) == {"enabled", "key_configured", "calls_today", "global_daily_limit", "consenting_students"}
     assert body["ai"]["enabled"] is False
     assert "DATABASE_URL" not in str(body) and "postgres" not in str(body).lower().replace("postgresql", "")
 
@@ -78,3 +78,25 @@ def test_fresh_backup_is_fine_and_an_old_one_warns(client, admin):
         db.commit()
     old = client.get("/api/admin/system", headers=admin).json()["backup"]
     assert old["warning"] is True and old["age_hours"] > 36
+
+
+def test_only_admin_can_toggle_gemini_ai(client, admin, monkeypatch):
+    from app.config import settings
+
+    student_headers, _, _ = register_user(client)
+    assert client.post("/api/admin/system/gemini", json={"enabled": True}).status_code == 401
+    assert client.post("/api/admin/system/gemini", headers=student_headers, json={"enabled": True}).status_code == 403
+
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "test-key-for-admin-toggle")
+    try:
+        on_res = client.post("/api/admin/system/gemini", headers=admin, json={"enabled": True})
+        assert on_res.status_code == 200 and on_res.json()["enabled"] is True
+        assert client.get("/api/admin/system", headers=admin).json()["ai"]["enabled"] is True
+
+        off_res = client.post("/api/admin/system/gemini", headers=admin, json={"enabled": False})
+        assert off_res.status_code == 200 and off_res.json()["enabled"] is False
+        assert client.get("/api/admin/system", headers=admin).json()["ai"]["enabled"] is False
+    finally:
+        with SessionLocal() as db:
+            db.query(SystemStatus).filter_by(key=system_status.GEMINI_STATUS_KEY).delete()
+            db.commit()

@@ -6,7 +6,7 @@ from app.config import settings
 from app.database import get_db
 from app.identity import get_current_user
 from app.models.models import User
-from app.services import consent
+from app.services import consent, system_status
 
 router = APIRouter(prefix="/api/consent", tags=["consent"])
 
@@ -20,7 +20,7 @@ class GrantRequest(BaseModel):
 
 
 def _gemini_available() -> bool:
-    return bool(settings.GEMINI_ENABLED) and bool((settings.GEMINI_API_KEY or "").strip())
+    return system_status.is_gemini_enabled() and bool((settings.GEMINI_API_KEY or "").strip())
 
 
 @router.get("")

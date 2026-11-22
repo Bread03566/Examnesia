@@ -9,7 +9,7 @@ from google import genai
 from google.genai import types
 from google.genai import errors as genai_errors
 from app.config import settings
-from app.services import consent, retrieval
+from app.services import consent, retrieval, system_status
 from app.services.segmenter_service import segmenter_service
 
 logger = logging.getLogger(__name__)
@@ -150,17 +150,25 @@ class AIService:
     def __init__(self):
         self.api_key = settings.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY")
         self.client = None
-        if (settings.GEMINI_ENABLED and self.api_key and self.api_key.strip()
+        self.sync_client()
+
+    def sync_client(self) -> None:
+        """Initializes or clears the Gemini client according to the current enabled switch."""
+        self.api_key = settings.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY")
+        if (system_status.is_gemini_enabled() and self.api_key and self.api_key.strip()
                 and not self.api_key.startswith("demo_")):
-            try:
-                self.client = genai.Client(api_key=self.api_key)
-            except Exception as e:
-                logger.error(f"Failed to initialize Gemini client: {e}")
-                self.client = None
+            if self.client is None:
+                try:
+                    self.client = genai.Client(api_key=self.api_key)
+                except Exception as e:
+                    logger.error(f"Failed to initialize Gemini client: {e}")
+                    self.client = None
+        else:
+            self.client = None
 
     def is_api_configured(self) -> bool:
         # Checked on every call, not just at startup, so the switch holds even if a client exists.
-        return bool(settings.GEMINI_ENABLED) and self.client is not None
+        return system_status.is_gemini_enabled() and self.client is not None
 
     def may_use_gemini(self, user_id: Optional[int]) -> bool:
         """Engine choice for one student: Gemini only if it is configured AND this student has consented."""

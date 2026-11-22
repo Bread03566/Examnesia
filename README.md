@@ -1,11 +1,11 @@
-# Kabisado 🦉 — Aral ngayon, pasa bukas.
+# Kabisado 🦉 — From huh? to gotcha!
 
 > **Kabisado** (Tagalog for *"memorized"* or *"mastered"*) is an AI-powered study companion designed for students. Students upload their handouts, lecture notes, or modules, and Kabisado turns them into bite-sized summaries, interactive flashcards, and multiple-choice quizzes with instant grounded feedback.
 
 ---
 
 ## 🦉 Brand & Persona
-- **Tagline**: *"Aral ngayon, pasa bukas."*
+- **Tagline**: *"From huh? to gotcha!"*
 - **Vibe**: Relatable, funny, and dramatic like a student best friend who roasts you gently for procrastinating, then stays up all night to help you pass.
 - **Microcopy**: Light Taglish interface touches (e.g., *"Wala ka pang module. Bukas na naman?"*, *"Hala siya, Dean's Lister yarn?! 🦉✨"*), paired with crystal-clear, serious academic explanations.
 - **Mascot**: **Kabi**, the sleepy, caffeine-fueled owl who wears a nightcap or study glasses.

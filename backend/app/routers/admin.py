@@ -1,12 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.identity import require_admin
 from app.models.models import AuditLog, Document, Flashcard, QuizAttempt, Question, User
 from app.security.sessions import revoke_all_for_user
 from app.services import system_status
+from app.services.ai_service import ai_service
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -37,9 +40,41 @@ def overview(_: User = Depends(require_admin), db: Session = Depends(get_db)):
     }
 
 
+class GeminiToggleRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+
+
 @router.get("/system")
 def system(_: User = Depends(require_admin), db: Session = Depends(get_db)):
     return system_status.system_report(db)
+
+
+@router.post("/system/gemini")
+def toggle_gemini(
+    payload: GeminiToggleRequest,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin-only master switch to turn Gemini AI on or off site-wide."""
+    if payload.enabled and not (settings.GEMINI_API_KEY or "").strip():
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Cannot turn on Gemini AI because GEMINI_API_KEY is not configured on the server.",
+        )
+    system_status.set_gemini_enabled(db, payload.enabled)
+    db.add(
+        AuditLog(
+            actor_id=admin.id,
+            actor_username=admin.username,
+            action="system.gemini_enable" if payload.enabled else "system.gemini_disable",
+            target_ref="gemini",
+        )
+    )
+    db.commit()
+    ai_service.sync_client()
+    return {"enabled": system_status.is_gemini_enabled(db)}
 
 
 @router.get("/students")

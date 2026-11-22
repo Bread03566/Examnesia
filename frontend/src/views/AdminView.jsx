@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ShieldCheck, Search, UserX, UserCheck, History } from 'lucide-react';
+import { ShieldCheck, Search, UserX, UserCheck, History, Sparkles, Loader2 } from 'lucide-react';
 import ConfirmDialog from '../components/ConfirmDialog';
 import StatePanel from '../components/StatePanel';
-import { getAdminAudit, getAdminOverview, getAdminStudents, getAdminSystem, setStudentActive } from '../services/api';
+import { getAdminAudit, getAdminOverview, getAdminStudents, getAdminSystem, setAdminGeminiEnabled, setStudentActive } from '../services/api';
 
 const STATS = [
   ['students', 'Students'],
@@ -40,7 +40,7 @@ function Meter({ label, used, limit, unit }) {
   );
 }
 
-function SystemPanel({ system }) {
+function SystemPanel({ system, onRequestGeminiToggle, geminiBusy }) {
   const { database, text_storage: text, ai, backup } = system;
   return (
     <section aria-label="System status" className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 space-y-3 shadow-xs">
@@ -54,9 +54,42 @@ function SystemPanel({ system }) {
       )}
       {database.size_mb !== null && <Meter label="Database size" used={database.size_mb} limit={database.limit_mb} unit="MB" />}
       <Meter label="Study text stored" used={text.used_mb} limit={text.budget_mb} unit="MB" />
-      <p className="text-xs text-slate-700 pt-1">
-        Gemini AI: <strong>{ai.enabled ? 'on' : 'off'}</strong> · {ai.calls_today} / {ai.global_daily_limit} requests today · {ai.consenting_students} student(s) opted in
-      </p>
+      <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="space-y-0.5">
+          <p className="text-xs sm:text-sm font-semibold text-slate-900 flex items-center gap-1.5">
+            <Sparkles className="w-4 h-4 text-amber-700" />
+            <span>Gemini AI:</span>
+            <span
+              className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                ai.enabled
+                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                  : 'bg-slate-100 text-slate-700 border border-slate-300'
+              }`}
+            >
+              {ai.enabled ? 'On' : 'Off'}
+            </span>
+          </p>
+          <p className="text-xs text-slate-600">
+            {ai.calls_today} / {ai.global_daily_limit} requests today
+            {!ai.key_configured && ' · GEMINI_API_KEY not set on server'}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          disabled={geminiBusy || (!ai.enabled && !ai.key_configured)}
+          onClick={() => onRequestGeminiToggle(!ai.enabled)}
+          title={!ai.enabled && !ai.key_configured ? 'Set GEMINI_API_KEY in server environment first' : undefined}
+          className={`min-h-[38px] inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition disabled:opacity-50 disabled:cursor-not-allowed shrink-0 ${
+            ai.enabled
+              ? 'border border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100'
+              : 'bg-amber-500 text-white hover:bg-amber-600 shadow-xs'
+          }`}
+        >
+          {geminiBusy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+          <span>{ai.enabled ? 'Turn Off Gemini AI' : 'Turn On Gemini AI'}</span>
+        </button>
+      </div>
     </section>
   );
 }
@@ -83,6 +116,8 @@ export default function AdminView({ showToast }) {
   const [query, setQuery] = useState('');
   const [busyId, setBusyId] = useState(null);
   const [pendingDeactivate, setPendingDeactivate] = useState(null);
+  const [pendingGemini, setPendingGemini] = useState(null);
+  const [geminiBusy, setGeminiBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -133,6 +168,20 @@ export default function AdminView({ showToast }) {
     }
   };
 
+  const executeGeminiToggle = async (enabled) => {
+    setGeminiBusy(true);
+    try {
+      await setAdminGeminiEnabled(enabled);
+      showToast?.('success', enabled ? 'Gemini AI turned on.' : 'Gemini AI turned off.');
+      setPendingGemini(null);
+      await load(query);
+    } catch (e) {
+      showToast?.('error', e.message || 'Could not update Gemini AI setting.');
+    } finally {
+      setGeminiBusy(false);
+    }
+  };
+
   if (loading && !overview) {
     return (
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10">
@@ -179,7 +228,13 @@ export default function AdminView({ showToast }) {
         ))}
       </section>
 
-      {system && <SystemPanel system={system} />}
+      {system && (
+        <SystemPanel
+          system={system}
+          onRequestGeminiToggle={(next) => setPendingGemini(next)}
+          geminiBusy={geminiBusy}
+        />
+      )}
 
       {/* Students Directory */}
       <section aria-label="Students" className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-xs">
@@ -288,8 +343,18 @@ export default function AdminView({ showToast }) {
             <li key={e.id} className="py-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-slate-800">
               <span className="text-slate-600 whitespace-nowrap text-xs">{fmt(e.created_at)}</span>
               <span className="font-semibold" translate="no">@{e.actor}</span>
-              <span>{e.action === 'student.deactivate' ? 'deactivated' : 'reactivated'} student</span>
-              <span className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">{e.target.slice(0, 8)}</span>
+              <span>
+                {e.action === 'system.gemini_enable'
+                  ? 'turned on Gemini AI'
+                  : e.action === 'system.gemini_disable'
+                  ? 'turned off Gemini AI'
+                  : e.action === 'student.deactivate'
+                  ? 'deactivated student'
+                  : 'reactivated student'}
+              </span>
+              {!e.action.startsWith('system.') && (
+                <span className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">{e.target.slice(0, 8)}</span>
+              )}
             </li>
           ))}
           {audit.length === 0 && <li className="py-4 text-slate-600">No admin changes recorded yet.</li>}
@@ -309,6 +374,20 @@ export default function AdminView({ showToast }) {
             : ''
         }
         confirmLabel="Deactivate account"
+      />
+      <ConfirmDialog
+        isOpen={pendingGemini !== null}
+        onClose={() => setPendingGemini(null)}
+        onConfirm={() => pendingGemini !== null && executeGeminiToggle(pendingGemini)}
+        busy={geminiBusy}
+        variant={pendingGemini ? 'default' : 'danger'}
+        title={pendingGemini ? 'Turn on Gemini AI?' : 'Turn off Gemini AI?'}
+        message={
+          pendingGemini
+            ? 'Enabling Gemini AI allows Kabisado to send study prompts to Google Gemini for summaries, flashcards, quizzes, and chat.'
+            : 'Disabling Gemini AI switches the entire site back to the built-in offline study engine immediately.'
+        }
+        confirmLabel={pendingGemini ? 'Turn on Gemini AI' : 'Turn off Gemini AI'}
       />
     </div>
   );
