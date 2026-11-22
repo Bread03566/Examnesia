@@ -258,9 +258,9 @@ export default function QuizMode({
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
-            <h1 className="text-xl font-black text-slate-900 flex items-center gap-2">
-              <HelpCircle className="w-5 h-5 text-emerald-600" />
-              <span>{isWeakSpotMode ? 'Weak-Spot Quiz' : isExamMode ? 'Timed Exam Mode ⏱️' : 'Kabisado Quiz Mode'}</span>
+            <h1 className="text-lg sm:text-xl font-extrabold text-slate-900 flex items-center gap-2">
+              <HelpCircle className="w-5 h-5 text-emerald-600 shrink-0" />
+              <span>{isWeakSpotMode ? 'Weak-Spot Quiz' : isExamMode ? 'Timed Exam Mode' : 'Quiz Mode'}</span>
             </h1>
             <p className="text-xs text-slate-500">
               One question at a time, with instant grounded feedback.

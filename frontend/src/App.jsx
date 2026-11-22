@@ -1,19 +1,32 @@
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import Navbar from './components/Navbar';
 import Toast from './components/Toast';
 import Companion from './components/Companion';
+import StatePanel from './components/StatePanel';
 import UploadLibraryView from './views/UploadLibraryView';
-import DocumentView from './views/DocumentView';
-import FlashcardStudyMode from './views/FlashcardStudyMode';
-import QuizMode from './views/QuizMode';
-import ProgressView from './views/ProgressView';
-import ChatView from './views/ChatView';
-import AdminView from './views/AdminView';
-import ExamPrepView from './views/ExamPrepView';
 import { useAuth } from './components/AuthGate';
 import { CloudOff, X } from 'lucide-react';
 import { getDocuments, checkHealth } from './services/api';
 import { usePetEmoji } from './components/pets';
+
+const DocumentView = lazy(() => import('./views/DocumentView'));
+const FlashcardStudyMode = lazy(() => import('./views/FlashcardStudyMode'));
+const QuizMode = lazy(() => import('./views/QuizMode'));
+const ProgressView = lazy(() => import('./views/ProgressView'));
+const ChatView = lazy(() => import('./views/ChatView'));
+const AdminView = lazy(() => import('./views/AdminView'));
+const ExamPrepView = lazy(() => import('./views/ExamPrepView'));
+
+const VALID_VIEWS = new Set(['library', 'dashboard', 'exam', 'admin', 'document', 'flashcards', 'quiz', 'chat']);
+
+function parseHashRoute() {
+  const raw = (window.location.hash || '').replace(/^#\/?/, '');
+  const [view, docIdStr] = raw.split('/');
+  return {
+    view: VALID_VIEWS.has(view) ? view : 'library',
+    docId: docIdStr ? Number(docIdStr) : null,
+  };
+}
 
 export default function App() {
   const petEmoji = usePetEmoji();
@@ -28,42 +41,72 @@ export default function App() {
     }
   }, [petEmoji]);
 
-  const [activeView, setActiveView] = useState('library'); // 'library' | 'dashboard' | 'document' | 'flashcards' | 'quiz' | 'chat'
+  const initial = parseHashRoute();
+  const [activeView, setActiveView] = useState(initial.view);
   const [documents, setDocuments] = useState([]);
   const [currentDoc, setCurrentDoc] = useState(null);
   const [activeTopicId, setActiveTopicId] = useState(null);
   const [isDueCardsMode, setIsDueCardsMode] = useState(false);
   const [isWeakSpotQuizMode, setIsWeakSpotQuizMode] = useState(false);
-  const [aiConfigured, setAiConfigured] = useState(null); // null until the health check answers
+  const [aiConfigured, setAiConfigured] = useState(null);
   const [offlineNoticeDismissed, setOfflineNoticeDismissed] = useState(false);
   const [toast, setToast] = useState(null);
 
-  useEffect(() => {
-    fetchHealthAndDocs();
-  }, []);
-
-  const fetchHealthAndDocs = async () => {
+  const fetchHealthAndDocs = useCallback(async () => {
     try {
       const health = await checkHealth();
       setAiConfigured(Boolean(health.ai_configured));
     } catch {
-      // Backend unreachable: other errors already say so, so don't also claim the AI is off
       setAiConfigured(null);
     }
 
     try {
       const docs = await getDocuments();
       setDocuments(docs);
-      // Keep the open document if it still exists; otherwise fall back to the newest one
-      setCurrentDoc((prev) => docs.find((d) => d.id === prev?.id) || docs[0] || null);
+      const { docId: hashDocId } = parseHashRoute();
+      setCurrentDoc((prev) => {
+        if (prev && docs.some((d) => d.id === prev.id)) return docs.find((d) => d.id === prev.id);
+        if (hashDocId && docs.some((d) => d.id === hashDocId)) return docs.find((d) => d.id === hashDocId);
+        return docs[0] || null;
+      });
     } catch (err) {
-      console.error("Could not fetch documents:", err);
+      console.error('Could not fetch documents:', err);
     }
-  };
+  }, []);
 
-  const showToast = (type, message) => {
+  useEffect(() => {
+    fetchHealthAndDocs();
+  }, [fetchHealthAndDocs]);
+
+  // Keep URL hash in sync so browser Back/Forward works naturally
+  useEffect(() => {
+    const docScoped = ['document', 'flashcards', 'quiz', 'chat'].includes(activeView);
+    const nextHash = docScoped && currentDoc ? `#/${activeView}/${currentDoc.id}` : `#/${activeView}`;
+    if (window.location.hash !== nextHash) {
+      window.history.pushState(null, '', nextHash);
+    }
+  }, [activeView, currentDoc]);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      const { view, docId } = parseHashRoute();
+      if (docId) {
+        const found = documents.find((d) => d.id === docId);
+        if (found) setCurrentDoc(found);
+      }
+      if (view === 'admin' && user?.role !== 'admin') {
+        setActiveView('library');
+        return;
+      }
+      setActiveView(view);
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, [documents, user?.role]);
+
+  const showToast = useCallback((type, message) => {
     setToast({ type, message });
-  };
+  }, []);
 
   const handleSelectDoc = (doc) => {
     setCurrentDoc(doc);
@@ -101,9 +144,11 @@ export default function App() {
     setActiveView('chat');
   };
 
+  const hideCompanionOnMobile = ['chat', 'quiz', 'flashcards'].includes(activeView);
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900 selection:bg-amber-100 selection:text-amber-900">
-      {/* Sticky Navigation Header */}
+      {/* Sticky Top Header + Compact Mobile Bottom Navigation */}
       <Navbar
         activeTab={activeView}
         onSelectTab={(tab) => {
@@ -124,15 +169,16 @@ export default function App() {
 
       {aiConfigured === false && !offlineNoticeDismissed && (
         <div className="animate-in fade-in slide-in-from-top-2 border-b border-amber-200 bg-amber-50 text-amber-950">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2 flex items-center gap-3 text-xs">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-2 flex items-center gap-3 text-xs">
             <CloudOff className="w-4 h-4 shrink-0 text-amber-700" />
-            <p className="flex-1">
-              AI is offline right now, so summaries, flashcards, and quizzes use simpler versions built straight from your module.
+            <p className="flex-1 leading-snug">
+              Offline study engine active — summaries, flashcards, quizzes, and chat are built directly from your uploaded modules without sending data to external AI.
             </p>
             <button
+              type="button"
               onClick={() => setOfflineNoticeDismissed(true)}
-              aria-label="Dismiss notice"
-              className="p-1 rounded-md hover:bg-amber-100"
+              aria-label="Dismiss offline engine notice"
+              className="min-h-[28px] min-w-[28px] inline-flex items-center justify-center rounded-lg hover:bg-amber-100"
             >
               <X className="w-4 h-4" />
             </button>
@@ -140,89 +186,101 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Content Area */}
-      <main className="flex-1 pb-16">
+      {/* Main Content Area (extra bottom padding on mobile for bottom nav bar) */}
+      <main className={`flex-1 ${activeView === 'chat' ? 'pb-16 md:pb-4' : 'pb-24 md:pb-16'}`}>
+        <Suspense
+          fallback={
+            <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10">
+              <StatePanel variant="loading" title="Loading view..." />
+            </div>
+          }
+        >
         <div key={activeView} className="view-enter">
-        {activeView === 'library' && (
-          <UploadLibraryView
-            documents={documents}
-            onSelectDoc={handleSelectDoc}
-            onRefreshDocs={fetchHealthAndDocs}
-            showToast={showToast}
-          />
-        )}
+          {activeView === 'library' && (
+            <UploadLibraryView
+              documents={documents}
+              onSelectDoc={handleSelectDoc}
+              onRefreshDocs={fetchHealthAndDocs}
+              showToast={showToast}
+            />
+          )}
 
-        {activeView === 'dashboard' && (
-          <ProgressView
-            onStartDueCards={() => handleStartFlashcards(currentDoc?.id, null, true)}
-            onStartWeakSpotQuiz={(docId) => handleStartQuiz(docId || currentDoc?.id, null, true)}
-            onSelectTopicQuiz={(docId, topicId) => handleStartQuiz(docId, topicId, false)}
-            showToast={showToast}
-          />
-        )}
+          {activeView === 'dashboard' && (
+            <ProgressView
+              onStartDueCards={() => handleStartFlashcards(currentDoc?.id, null, true)}
+              onStartWeakSpotQuiz={(docId) => handleStartQuiz(docId || currentDoc?.id, null, true)}
+              onSelectTopicQuiz={(docId, topicId) => handleStartQuiz(docId, topicId, false)}
+              onGoToLibrary={() => setActiveView('library')}
+              showToast={showToast}
+            />
+          )}
 
-        {activeView === 'exam' && <ExamPrepView documents={documents} showToast={showToast} />}
+          {activeView === 'exam' && <ExamPrepView documents={documents} showToast={showToast} />}
 
-        {activeView === 'admin' && user?.role === 'admin' && <AdminView showToast={showToast} />}
+          {activeView === 'admin' && user?.role === 'admin' && <AdminView showToast={showToast} />}
 
-        {activeView === 'document' && currentDoc && (
-          <DocumentView
-            documentId={currentDoc.id}
-            onBack={() => setActiveView('library')}
-            onStartFlashcards={(docId, topicId) => handleStartFlashcards(docId, topicId, false)}
-            onStartQuiz={(docId, topicId) => handleStartQuiz(docId, topicId, false)}
-            onStartChat={(docId) => handleStartChat(docId)}
-            onStartWeakSpotQuiz={(docId) => handleStartQuiz(docId, null, true)}
-            showToast={showToast}
-          />
-        )}
+          {activeView === 'document' && currentDoc && (
+            <DocumentView
+              documentId={currentDoc.id}
+              onBack={() => setActiveView('library')}
+              onStartFlashcards={(docId, topicId) => handleStartFlashcards(docId, topicId, false)}
+              onStartQuiz={(docId, topicId) => handleStartQuiz(docId, topicId, false)}
+              onStartChat={(docId) => handleStartChat(docId)}
+              onStartWeakSpotQuiz={(docId) => handleStartQuiz(docId, null, true)}
+              showToast={showToast}
+            />
+          )}
 
-        {activeView === 'flashcards' && currentDoc && (
-          <FlashcardStudyMode
-            documentId={currentDoc.id}
-            initialTopicId={activeTopicId}
-            isDueMode={isDueCardsMode}
-            onBack={() => setActiveView('document')}
-            showToast={showToast}
-          />
-        )}
+          {activeView === 'flashcards' && currentDoc && (
+            <FlashcardStudyMode
+              documentId={currentDoc.id}
+              initialTopicId={activeTopicId}
+              isDueMode={isDueCardsMode}
+              onBack={() => setActiveView('document')}
+              showToast={showToast}
+            />
+          )}
 
-        {activeView === 'quiz' && currentDoc && (
-          <QuizMode
-            documentId={currentDoc.id}
-            initialTopicId={activeTopicId}
-            isWeakSpotMode={isWeakSpotQuizMode}
-            aiConfigured={aiConfigured}
-            onBack={() => setActiveView('document')}
-            onGoToFlashcards={(docId) => handleStartFlashcards(docId, null, false)}
-            showToast={showToast}
-          />
-        )}
+          {activeView === 'quiz' && currentDoc && (
+            <QuizMode
+              documentId={currentDoc.id}
+              initialTopicId={activeTopicId}
+              isWeakSpotMode={isWeakSpotQuizMode}
+              aiConfigured={aiConfigured}
+              onBack={() => setActiveView('document')}
+              onGoToFlashcards={(docId) => handleStartFlashcards(docId, null, false)}
+              showToast={showToast}
+            />
+          )}
 
-        {activeView === 'chat' && currentDoc && (
-          <ChatView
-            documentId={currentDoc.id}
-            documentTitle={currentDoc.title}
-            onBack={() => setActiveView('document')}
-            showToast={showToast}
-          />
-        )}
+          {activeView === 'chat' && currentDoc && (
+            <ChatView
+              documentId={currentDoc.id}
+              documentTitle={currentDoc.title}
+              onBack={() => setActiveView('document')}
+              showToast={showToast}
+            />
+          )}
         </div>
+        </Suspense>
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-200 bg-white py-6 text-center text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span translate="no" className="notranslate font-extrabold text-slate-800">Kabisado {petEmoji}</span>
-            <span>—</span>
-            <span className="italic">Study today, pass tomorrow.</span>
+      {/* Footer (hidden on mobile during chat to maximize viewport) */}
+      {activeView !== 'chat' && (
+        <footer className="hidden md:block border-t border-slate-200 bg-white py-5 text-xs text-slate-600">
+          <div className="max-w-6xl mx-auto px-6 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span translate="no" className="notranslate font-bold text-slate-900">Kabisado {petEmoji}</span>
+              <span>·</span>
+              <span>Study today, pass tomorrow.</span>
+            </div>
+            <span className="text-slate-500">Privacy-first study companion</span>
           </div>
-        </div>
-      </footer>
+        </footer>
+      )}
 
-      {/* Study-buddy pet that watches the cursor */}
-      <Companion />
+      {/* Study-buddy pet that docks safely above mobile nav */}
+      <Companion hideOnMobile={hideCompanionOnMobile} />
 
       {/* Toast Notifications */}
       <Toast toast={toast} onClose={() => setToast(null)} />

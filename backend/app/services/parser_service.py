@@ -1,7 +1,10 @@
 import io
 import re
 from collections import Counter
-import fitz  # PyMuPDF
+try:
+    import pymupdf
+except ImportError:
+    import fitz as pymupdf
 from docx import Document as DocxDocument
 from fastapi import HTTPException, status
 from typing import List
@@ -13,14 +16,14 @@ class ParserService:
     def parse_pdf(file_bytes: bytes, filename: str = "document.pdf") -> str:
         """Extract text from PDF using PyMuPDF."""
         try:
-            doc = fitz.open(stream=file_bytes, filetype="pdf")
+            with pymupdf.open(stream=file_bytes, filetype="pdf") as doc:
+                pages = [doc[page_num].get_text("text") for page_num in range(len(doc))]
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Couldn't open your PDF, friend! It may be corrupted or password-protected: {str(e)}"
+                detail=f"Couldn't open your PDF. It may be corrupted or password-protected: {str(e)}"
             )
 
-        pages = [doc[page_num].get_text("text") for page_num in range(len(doc))]
         full_text = ParserService.clean_pdf_pages(pages)
 
         if not full_text or len(full_text) < 30:

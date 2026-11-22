@@ -76,16 +76,21 @@ def get_dashboard_stats(
     )
 
     recent_attempts = (
-        db.query(QuizAttempt).filter(*doc_filter).order_by(QuizAttempt.completed_at.desc()).limit(15).all()
+        db.query(QuizAttempt, Document.title)
+        .join(Document, Document.id == QuizAttempt.document_id)
+        .filter(*doc_filter)
+        .order_by(QuizAttempt.completed_at.desc())
+        .limit(15)
+        .all()
     )
     history_list = []
-    for att in recent_attempts:
+    for att, doc_title in recent_attempts:
         pct = round((att.score / att.total_questions) * 100, 1) if att.total_questions > 0 else 0.0
         completed = as_utc(att.completed_at)
         history_list.append({
             "id": att.id,
             "document_id": att.document_id,
-            "document_title": att.document.title if att.document else "Module",
+            "document_title": doc_title or "Module",
             "score": att.score,
             "total_questions": att.total_questions,
             "percentage": pct,

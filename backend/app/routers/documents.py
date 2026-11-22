@@ -2,7 +2,7 @@ import os
 import uuid
 from pathlib import Path
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, status
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
@@ -107,28 +107,55 @@ async def create_document_from_text(
 @router.get("", response_model=List[DocumentListItem])
 def list_documents(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """
-    Get all uploaded documents with summary stats.
+    Get all uploaded documents with summary stats, without transferring full raw_text payloads.
     """
+    trimmed = func.trim(func.coalesce(Document.raw_text, ""))
+    word_count_expr = case(
+        (func.length(trimmed) == 0, 0),
+        else_=func.length(trimmed) - func.length(func.replace(trimmed, " ", "")) + 1,
+    )
+
+    rows = (
+        db.query(
+            Document.id,
+            Document.title,
+            Document.file_type,
+            Document.created_at,
+            word_count_expr.label("word_count"),
+        )
+        .filter(Document.user_id == user.id)
+        .order_by(Document.created_at.desc())
+        .all()
+    )
+    if not rows:
+        return []
+
+    doc_ids = [r.id for r in rows]
+
     def counts_by_document(model) -> dict:
-        return dict(db.query(model.document_id, func.count(model.id)).group_by(model.document_id).all())
+        return dict(
+            db.query(model.document_id, func.count(model.id))
+            .filter(model.document_id.in_(doc_ids))
+            .group_by(model.document_id)
+            .all()
+        )
 
     topic_counts = counts_by_document(Topic)
     flashcard_counts = counts_by_document(Flashcard)
     question_counts = counts_by_document(Question)
 
-    docs = db.query(Document).filter(Document.user_id == user.id).order_by(Document.created_at.desc()).all()
     return [
         DocumentListItem(
-            id=d.id,
-            title=d.title,
-            file_type=d.file_type,
-            created_at=d.created_at,
-            topics_count=topic_counts.get(d.id, 0),
-            flashcards_count=flashcard_counts.get(d.id, 0),
-            questions_count=question_counts.get(d.id, 0),
-            word_count=len(d.raw_text.split()) if d.raw_text else 0
+            id=r.id,
+            title=r.title,
+            file_type=r.file_type,
+            created_at=r.created_at,
+            topics_count=topic_counts.get(r.id, 0),
+            flashcards_count=flashcard_counts.get(r.id, 0),
+            questions_count=question_counts.get(r.id, 0),
+            word_count=int(r.word_count or 0),
         )
-        for d in docs
+        for r in rows
     ]
 
 @router.get("/{document_id}", response_model=DocumentDetailResponse)

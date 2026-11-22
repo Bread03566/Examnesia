@@ -16,18 +16,27 @@
   --color-cocoa: #493628;
   --color-ink: #2A1F17; /* modal backdrops */
 
-  /* Neutrals, warmed toward the palette */
+  /* Semantic design tokens */
+  --surface-canvas: #E4E0E1;
+  --surface-card: #FFFFFF;
+  --surface-subtle: #F5F1EE;
+  --border-subtle: #DDD3CD;
+  --text-primary: #3A2B20;
+  --text-muted: #65503F;
+  --accent-primary: #493628;
+
+  /* Neutrals, warmed toward the palette (slate-400+ darkened for WCAG 2.2 AA contrast on white) */
   --color-slate-50: #E4E0E1;
-  --color-slate-100: #DCD6D5;
+  --color-slate-100: #ECE7E4;
   --color-slate-200: #DDD3CD;
-  --color-slate-300: #D6C0B3;
-  --color-slate-400: #AB886D;
-  --color-slate-500: #7A6151;
-  --color-slate-600: #65503F;
-  --color-slate-700: #574332;
-  --color-slate-800: #493628;
-  --color-slate-900: #3A2B20;
-  --color-slate-950: #2A1F17;
+  --color-slate-300: #CBB8AC;
+  --color-slate-400: #6E5747;
+  --color-slate-500: #5E4A3C;
+  --color-slate-600: #4F3D30;
+  --color-slate-700: #463529;
+  --color-slate-800: #3E2E23;
+  --color-slate-900: #30231A;
+  --color-slate-950: #231912;
 
   /* Primary accent (was amber): sand surfaces, cocoa buttons */
   --color-amber-50: #F3EEEA;

@@ -165,7 +165,7 @@ function seededShuffle(items, seed) {
 }
 
 function MatchingAnswer({ question, answer, onAnswer }) {
-  const pairs = question.answer_data?.pairs || [];
+  const pairs = useMemo(() => question.answer_data?.pairs || [], [question.answer_data?.pairs]);
   const terms = useMemo(() => seededShuffle(pairs.map((p) => p.term), question.id), [pairs, question.id]);
   const [placed, setPlaced] = useState(() => pairs.map(() => null)); // slot i -> pair index of the term placed there
   const [selected, setSelected] = useState(null); // pair index of a tapped term waiting for a slot

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { BookOpenCheck, Check, Lightbulb, PartyPopper, Sparkles } from 'lucide-react';
 import Markdown from './Markdown';
@@ -125,14 +125,13 @@ export default function SummaryView({ summary, keyTerms = [], length, storageKey
   const readMinutes = Math.max(1, Math.round((summary || '').split(/\s+/).filter(Boolean).length / 200));
 
   // Which sections the student has marked as reviewed; remembered per document and length
-  const [reviewed, setReviewed] = useState([]);
-  useEffect(() => {
+  const [reviewed, setReviewed] = useState(() => {
     try {
-      setReviewed(JSON.parse(localStorage.getItem(storageKey) || '[]'));
+      return JSON.parse(localStorage.getItem(storageKey) || '[]');
     } catch {
-      setReviewed([]);
+      return [];
     }
-  }, [storageKey]);
+  });
 
   const toggleReviewed = (title) => {
     setReviewed((prev) => {

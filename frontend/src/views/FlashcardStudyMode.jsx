@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { 
   ArrowLeft, 
   RotateCw, 
@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import Mascot from '../components/Mascot';
 import FlagModal from '../components/FlagModal';
+import ConfirmDialog from '../components/ConfirmDialog';
+import Modal from '../components/Modal';
 import { 
   getFlashcards, 
   generateFlashcards, 
@@ -46,16 +48,13 @@ export default function FlashcardStudyMode({
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showFlagModal, setShowFlagModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // Card form states
   const [formFront, setFormFront] = useState('');
   const [formBack, setFormBack] = useState('');
   const [formCardType, setFormCardType] = useState('term');
-
-  // Load cards on mount
-  useEffect(() => {
-    loadCards();
-  }, [documentId, selectedTopicId, isDueMode]);
 
   const speakText = (text, e) => {
     e?.stopPropagation();
@@ -66,7 +65,7 @@ export default function FlashcardStudyMode({
     window.speechSynthesis.speak(utterance);
   };
 
-  const loadCards = async () => {
+  const loadCards = useCallback(async () => {
     setIsLoading(true);
     try {
       let data = [];
@@ -84,13 +83,46 @@ export default function FlashcardStudyMode({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [documentId, selectedTopicId, isDueMode, showToast]);
 
+  // Load cards on mount
+  useEffect(() => {
+    loadCards();
+  }, [loadCards]);
 
-  // Keyboard navigation
+  const handleNextCard = useCallback(() => {
+    if (currentIndex < cards.length - 1) {
+      setIsFlipped(false);
+      setTimeout(() => setCurrentIndex((prev) => prev + 1), 150);
+    } else {
+      setIsFinished(true);
+    }
+  }, [currentIndex, cards.length]);
+
+  const handlePrevCard = useCallback(() => {
+    if (currentIndex > 0) {
+      setIsFlipped(false);
+      setTimeout(() => setCurrentIndex((prev) => prev - 1), 150);
+    }
+  }, [currentIndex]);
+
+  const handleRate = useCallback(async (rating) => {
+    const card = cards[currentIndex];
+    if (!card) return;
+
+    try {
+      await reviewFlashcard(card.id, rating);
+      handleNextCard();
+    } catch (err) {
+      showToast('error', err?.message || 'Could not save your review. Please try again.');
+    }
+  }, [cards, currentIndex, handleNextCard, showToast]);
+
+  // Keyboard navigation (Space to flip, Arrows to navigate, 1-4 to rate when flipped)
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (showAddModal || showEditModal || showFlagModal) return;
+      if (showAddModal || showEditModal || showFlagModal || showDeleteConfirm) return;
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       if (e.code === 'Space') {
         e.preventDefault();
         setIsFlipped((prev) => !prev);
@@ -98,19 +130,22 @@ export default function FlashcardStudyMode({
         handleNextCard();
       } else if (e.code === 'ArrowLeft' && currentIndex > 0) {
         handlePrevCard();
+      } else if (isFlipped && ['1', '2', '3', '4'].includes(e.key)) {
+        const ratings = ['again', 'hard', 'good', 'easy'];
+        handleRate(ratings[Number(e.key) - 1]);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentIndex, cards.length, showAddModal, showEditModal, showFlagModal]);
+  }, [currentIndex, cards.length, isFlipped, showAddModal, showEditModal, showFlagModal, showDeleteConfirm, handleNextCard, handlePrevCard, handleRate]);
 
   const handleGenerateCards = async (count = 8) => {
     setIsGenerating(true);
     try {
-      showToast('info', 'Making flashcards so you won\'t fail...');
+      showToast('info', 'Generating flashcards from your module...');
       const newCards = await generateFlashcards(documentId, count, selectedTopicId);
       setCards((prev) => [...newCards, ...prev]);
-      showToast('success', `Created ${newCards.length} new flashcards!`);
+      showToast('success', `Created ${newCards.length} new flashcards.`);
       setCurrentIndex(0);
       setIsFlipped(false);
       setIsFinished(false);
@@ -121,41 +156,13 @@ export default function FlashcardStudyMode({
     }
   };
 
-  const handleNextCard = () => {
-    if (currentIndex < cards.length - 1) {
-      setIsFlipped(false);
-      setTimeout(() => setCurrentIndex((prev) => prev + 1), 150);
-    } else {
-      setIsFinished(true);
-    }
-  };
-
-  const handlePrevCard = () => {
-    if (currentIndex > 0) {
-      setIsFlipped(false);
-      setTimeout(() => setCurrentIndex((prev) => prev - 1), 150);
-    }
-  };
-
   const handleShuffle = () => {
     const shuffled = [...cards].sort(() => Math.random() - 0.5);
     setCards(shuffled);
     setCurrentIndex(0);
     setIsFlipped(false);
     setIsFinished(false);
-    showToast('info', 'Deck shuffled!');
-  };
-
-  const handleRate = async (rating) => {
-    const currentCard = cards[currentIndex];
-    if (!currentCard) return;
-
-    try {
-      await reviewFlashcard(currentCard.id, rating);
-      handleNextCard();
-    } catch {
-      handleNextCard();
-    }
+    showToast('info', 'Deck shuffled.');
   };
 
   const handleAddCard = async (e) => {
@@ -201,22 +208,29 @@ export default function FlashcardStudyMode({
     }
   };
 
-  const handleDeleteCard = async () => {
-    const currentCard = cards[currentIndex];
-    if (!currentCard) return;
-    if (!window.confirm('Are you sure you want to delete this card?')) return;
+  const handleDeleteCard = () => {
+    if (!cards[currentIndex]) return;
+    setShowDeleteConfirm(true);
+  };
 
+  const confirmDeleteCard = async () => {
+    const card = cards[currentIndex];
+    if (!card) return;
+    setIsDeleting(true);
     try {
-      await deleteFlashcard(currentCard.id);
+      await deleteFlashcard(card.id);
       const remaining = cards.filter((_, i) => i !== currentIndex);
       setCards(remaining);
       if (currentIndex >= remaining.length && remaining.length > 0) {
         setCurrentIndex(remaining.length - 1);
       }
       setIsFlipped(false);
+      setShowDeleteConfirm(false);
       showToast('success', 'Flashcard deleted.');
     } catch {
       showToast('error', 'Failed to delete the card.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -531,132 +545,132 @@ export default function FlashcardStudyMode({
       )}
 
       {/* ADD CARD MODAL */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/80 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="font-bold text-slate-900 text-base">Add Flashcard</h3>
-              <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600">✕</button>
-            </div>
-            <form onSubmit={handleAddCard} className="space-y-4 mt-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Card Type:</label>
-                <div className="flex gap-2">
-                  {['term', 'qa'].map((type) => (
-                    <button
-                      type="button"
-                      key={type}
-                      onClick={() => setFormCardType(type)}
-                      className={`flex-1 py-1.5 text-xs font-bold rounded-lg border capitalize ${
-                        formCardType === type
-                          ? 'bg-indigo-50 border-indigo-400 text-indigo-800'
-                          : 'border-slate-200 text-slate-600'
-                      }`}
-                    >
-                      {type === 'term' ? 'Term / Definition' : 'Question / Answer'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Card Front (Question or Term):
-                </label>
-                <textarea
-                  value={formFront}
-                  onChange={(e) => setFormFront(e.target.value)}
-                  placeholder="Example: What was the purpose of La Solidaridad?"
-                  className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 h-20 resize-none outline-none"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Card Back (Answer or Definition):
-                </label>
-                <textarea
-                  value={formBack}
-                  onChange={(e) => setFormBack(e.target.value)}
-                  placeholder="Example: To be the voice of the reformists and expose the abuses in the Philippines."
-                  className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 h-24 resize-none outline-none"
-                  required
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
+      <Modal isOpen={showAddModal} onClose={() => setShowAddModal(false)} title="Add Flashcard" maxWidth="max-w-md">
+        <form onSubmit={handleAddCard} className="space-y-4">
+          <div>
+            <span className="block text-xs font-semibold text-slate-700 mb-1.5">Card Type</span>
+            <div className="flex gap-2">
+              {['term', 'qa'].map((type) => (
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl"
+                  key={type}
+                  onClick={() => setFormCardType(type)}
+                  className={`flex-1 min-h-[38px] py-1.5 text-xs font-bold rounded-xl border ${
+                    formCardType === type
+                      ? 'bg-amber-50 border-amber-500 text-amber-900'
+                      : 'border-slate-300 text-slate-600'
+                  }`}
                 >
-                  Cancel
+                  {type === 'term' ? 'Term / Definition' : 'Question / Answer'}
                 </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl"
-                >
-                  Save Card
-                </button>
-              </div>
-            </form>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+
+          <div>
+            <label htmlFor="add-card-front" className="block text-xs font-semibold text-slate-700 mb-1">
+              Card Front (Question or Term)
+            </label>
+            <textarea
+              id="add-card-front"
+              value={formFront}
+              onChange={(e) => setFormFront(e.target.value)}
+              placeholder="Example: What was the purpose of La Solidaridad?"
+              className="w-full text-sm p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 h-20 resize-none outline-none"
+              required
+            />
+          </div>
+
+          <div>
+            <label htmlFor="add-card-back" className="block text-xs font-semibold text-slate-700 mb-1">
+              Card Back (Answer or Definition)
+            </label>
+            <textarea
+              id="add-card-back"
+              value={formBack}
+              onChange={(e) => setFormBack(e.target.value)}
+              placeholder="Example: To be the voice of the reformists and expose abuses."
+              className="w-full text-sm p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 h-24 resize-none outline-none"
+              required
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setShowAddModal(false)}
+              className="min-h-[40px] px-4 py-2 text-xs font-semibold text-slate-700 border border-slate-300 hover:bg-slate-50 rounded-xl"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="min-h-[40px] px-4 py-2 text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-xl"
+            >
+              Save Card
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       {/* EDIT CARD MODAL */}
-      {showEditModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/80 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="font-bold text-slate-900 text-base">Edit Flashcard</h3>
-              <button onClick={() => setShowEditModal(false)} className="text-slate-400 hover:text-slate-600">✕</button>
-            </div>
-            <form onSubmit={handleEditCard} className="space-y-4 mt-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Card Front:
-                </label>
-                <textarea
-                  value={formFront}
-                  onChange={(e) => setFormFront(e.target.value)}
-                  className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 h-20 resize-none outline-none"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Card Back:
-                </label>
-                <textarea
-                  value={formBack}
-                  onChange={(e) => setFormBack(e.target.value)}
-                  className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 h-24 resize-none outline-none"
-                  required
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowEditModal(false)}
-                  className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-xl"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl"
-                >
-                  Update Card
-                </button>
-              </div>
-            </form>
+      <Modal isOpen={showEditModal} onClose={() => setShowEditModal(false)} title="Edit Flashcard" maxWidth="max-w-md">
+        <form onSubmit={handleEditCard} className="space-y-4">
+          <div>
+            <label htmlFor="edit-card-front" className="block text-xs font-semibold text-slate-700 mb-1">
+              Card Front
+            </label>
+            <textarea
+              id="edit-card-front"
+              value={formFront}
+              onChange={(e) => setFormFront(e.target.value)}
+              className="w-full text-sm p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 h-20 resize-none outline-none"
+              required
+            />
           </div>
-        </div>
-      )}
+
+          <div>
+            <label htmlFor="edit-card-back" className="block text-xs font-semibold text-slate-700 mb-1">
+              Card Back
+            </label>
+            <textarea
+              id="edit-card-back"
+              value={formBack}
+              onChange={(e) => setFormBack(e.target.value)}
+              className="w-full text-sm p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 h-24 resize-none outline-none"
+              required
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setShowEditModal(false)}
+              className="min-h-[40px] px-4 py-2 text-xs font-semibold text-slate-700 border border-slate-300 hover:bg-slate-50 rounded-xl"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="min-h-[40px] px-4 py-2 text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-xl"
+            >
+              Update Card
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* DELETE CARD CONFIRMATION */}
+      <ConfirmDialog
+        isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        onConfirm={confirmDeleteCard}
+        busy={isDeleting}
+        variant="danger"
+        title="Delete flashcard?"
+        message="This will permanently remove this flashcard and its spaced-repetition schedule."
+        confirmLabel="Delete card"
+      />
 
       {/* FLAG CARD MODAL */}
       {showFlagModal && currentCard && (

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { createPortal } from 'react-dom';
-import { Download, Loader2, X } from 'lucide-react';
+import { Download, Loader2 } from 'lucide-react';
+import Modal from './Modal';
 import PasswordField from './PasswordField';
 import ConsentPanel from './ConsentPanel';
 import authClient from '../services/authClient';
@@ -57,57 +57,74 @@ export default function AccountModal({ user, onClose }) {
 
   const tabs = [['password', 'Change password'], ['deactivate', 'Deactivate'], ['delete', 'Delete account']];
 
-  // Rendered into <body>: the navbar has a backdrop blur, which would otherwise become the reference frame
-  // for "fixed" and squash this window into the 64px-high header instead of centring it on the screen.
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" role="dialog" aria-modal="true" aria-label="Account">
-      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-3xl bg-white p-6 shadow-xl">
-        <div className="flex items-start justify-between">
-          <div>
-            <h2 className="text-lg font-extrabold text-slate-900">{user.display_name}</h2>
-            <p className="text-xs text-slate-500">@{user.username}</p>
-          </div>
-          <button type="button" onClick={onClose} aria-label="Close" className="rounded-lg p-1.5 hover:bg-slate-100"><X className="w-5 h-5" /></button>
-        </div>
+  return (
+    <Modal
+      isOpen={true}
+      onClose={onClose}
+      title={user.display_name}
+      subtitle={`@${user.username}`}
+      maxWidth="max-w-md"
+    >
+      <button
+        type="button"
+        onClick={downloadData}
+        disabled={exporting}
+        className="w-full min-h-[40px] inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+      >
+        {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+        Download my data
+      </button>
 
-        <button type="button" onClick={downloadData} disabled={exporting}
-          className="mt-4 w-full inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
-          {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-          Download my data
-        </button>
+      <ConsentPanel />
 
-        <ConsentPanel />
-
-        <div role="tablist" className="mt-3 grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1">
-          {tabs.map(([key, text]) => (
-            <button key={key} type="button" role="tab" aria-selected={action === key}
-              onClick={() => { setAction(key); setError(''); setDone(''); }}
-              className={`rounded-lg px-2 py-1.5 text-[11px] sm:text-xs font-bold ${action === key ? 'bg-white text-amber-700 shadow-sm' : 'text-slate-500'}`}>
-              {text}
-            </button>
-          ))}
-        </div>
-
-        <form onSubmit={run} className="mt-4 space-y-3" noValidate>
-          {action === 'deactivate' && <p className="text-xs text-slate-600">You will not be able to log in until an admin reactivates your account. Your data is not deleted.</p>}
-          {action === 'delete' && <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800">This deletes your account and <strong>all your modules, flashcards, quizzes and progress</strong>. It cannot be undone.</p>}
-          <PasswordField label={action === 'password' ? 'Current password' : 'Your password'} value={current} onChange={setCurrent} autoComplete="current-password" />
-          {action === 'password' && (
-            <>
-              <PasswordField label="New password" value={next} onChange={setNext} autoComplete="new-password" />
-              <PasswordField label="Confirm new password" value={confirm} onChange={setConfirm} autoComplete="new-password" />
-            </>
-          )}
-          {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>}
-          {done && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">{done}</p>}
-          <button type="submit" disabled={busy || !current}
-            className={`w-full inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50 ${action === 'delete' ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-500 hover:bg-amber-600'}`}>
-            {busy && <Loader2 className="w-4 h-4 animate-spin" />}
-            {tabs.find(([k]) => k === action)[1]}
+      <div role="tablist" className="mt-4 grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1">
+        {tabs.map(([key, text]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={action === key}
+            onClick={() => { setAction(key); setError(''); setDone(''); }}
+            className={`rounded-lg px-2 py-2 text-xs font-bold transition ${
+              action === key ? 'bg-white text-amber-800 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            {text}
           </button>
-        </form>
+        ))}
       </div>
-    </div>,
-    document.body
+
+      <form onSubmit={run} className="mt-4 space-y-3" noValidate>
+        {action === 'deactivate' && (
+          <p className="text-xs text-slate-600 leading-relaxed">
+            You will not be able to log in until an admin reactivates your account. Your data is not deleted.
+          </p>
+        )}
+        {action === 'delete' && (
+          <p className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900 leading-relaxed">
+            This permanently deletes your account and <strong>all your modules, flashcards, quizzes, and progress</strong>. This cannot be undone.
+          </p>
+        )}
+        <PasswordField label={action === 'password' ? 'Current password' : 'Your password'} value={current} onChange={setCurrent} autoComplete="current-password" />
+        {action === 'password' && (
+          <>
+            <PasswordField label="New password" value={next} onChange={setNext} autoComplete="new-password" />
+            <PasswordField label="Confirm new password" value={confirm} onChange={setConfirm} autoComplete="new-password" />
+          </>
+        )}
+        {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">{error}</p>}
+        {done && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">{done}</p>}
+        <button
+          type="submit"
+          disabled={busy || !current}
+          className={`w-full min-h-[42px] inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50 ${
+            action === 'delete' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-amber-500 hover:bg-amber-600'
+          }`}
+        >
+          {busy && <Loader2 className="w-4 h-4 animate-spin" />}
+          {tabs.find(([k]) => k === action)[1]}
+        </button>
+      </form>
+    </Modal>
   );
 }
