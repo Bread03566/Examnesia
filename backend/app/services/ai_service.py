@@ -415,6 +415,7 @@ class AIService:
         style: str = "mixed",  # "definition", "situational", "mixed"
         question_styles: Optional[List[str]] = None,  # one entry per question; overrides `style` when given
         user_id: Optional[int] = None,
+        exclude_questions: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Generates quiz questions of the requested types and style. Every returned dict has:
@@ -428,7 +429,25 @@ class AIService:
                 for i in range(len(question_types))
             ]
         if not self.may_use_gemini(user_id):
-            return self._fallback_quiz(topic_title, topic_content, topic_id, count, difficulty, question_types)
+            return self._fallback_quiz(
+                topic_title, topic_content, topic_id, count, difficulty, question_types,
+                exclude_questions=exclude_questions,
+            )
+
+        excluded_norms = {
+            re.sub(r"\s+", " ", q.strip().lower())
+            for q in (exclude_questions or [])
+            if isinstance(q, str) and q.strip()
+        }
+        avoid_block = ""
+        if exclude_questions:
+            recent_stems = [q.strip() for q in exclude_questions if isinstance(q, str) and q.strip()][:25]
+            if recent_stems:
+                lines = "\n".join(f"- {s[:160]}" for s in recent_stems)
+                avoid_block = (
+                    "\nDo NOT repeat or closely paraphrase any of these already-asked or mastered questions; "
+                    f"test DIFFERENT facts or concepts from the text:\n{lines}\n"
+                )
 
         # Small models drift toward recall questions when asked for "a mix", so each slot names its style
         wanted = "\n".join(f"{i + 1}. {t}, {s}" for i, (t, s) in enumerate(zip(question_types, question_styles)))
@@ -448,7 +467,8 @@ class AIService:
         )
         user_prompt = (
             f"Topic: {topic_title}\n"
-            f"Write exactly these questions, in this order (type, style):\n{wanted}\n\n"
+            f"Write exactly these questions, in this order (type, style):\n{wanted}\n"
+            f"{avoid_block}\n"
             f"--- TEXT CONTENT ---\n{topic_content[:15000]}"
         )
 
@@ -463,18 +483,30 @@ class AIService:
                 q for q in (self._clean_ai_question(item, difficulty, style, topic_id) for item in raw)
                 if q and q["question_type"] in question_types
             ]
+            # Filter out repeats of already-asked/mastered questions when fresh ones exist
+            fresh = [
+                q for q in cleaned
+                if re.sub(r"\s+", " ", q["question"].strip().lower()) not in excluded_norms
+            ]
+            pool = fresh or cleaned
             # Keep the requested mix: fill each slot with a question of that type, preferring the asked-for style
             picked: List[Dict[str, Any]] = []
             for wanted_type, wanted_style in zip(question_types, question_styles):
-                same_type = [q for q in cleaned if q["question_type"] == wanted_type]
+                same_type = [q for q in pool if q["question_type"] == wanted_type]
                 match = next((q for q in same_type if q["style"] == wanted_style), same_type[0] if same_type else None)
                 if match:
-                    cleaned.remove(match)
+                    pool.remove(match)
                     picked.append(match)
-            return picked or self._fallback_quiz(topic_title, topic_content, topic_id, count, difficulty, question_types)
+            return picked or self._fallback_quiz(
+                topic_title, topic_content, topic_id, count, difficulty, question_types,
+                exclude_questions=exclude_questions,
+            )
         except Exception as e:
             logger.warning(f"Gemini quiz generation error ({e}), using grounded fallback.")
-            return self._fallback_quiz(topic_title, topic_content, topic_id, count, difficulty, question_types)
+            return self._fallback_quiz(
+                topic_title, topic_content, topic_id, count, difficulty, question_types,
+                exclude_questions=exclude_questions,
+            )
 
     @staticmethod
     def _clean_ai_question(q: Any, difficulty: str, style: str, topic_id: Optional[int]) -> Optional[Dict[str, Any]]:
@@ -592,26 +624,40 @@ class AIService:
         count: int,
         difficulty: str,
         question_types: Optional[List[str]] = None,
+        exclude_questions: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Offline questions of each type, built from the text's own definitions and from
-        fill-in-the-blank sentences (years and names). Situational questions need the AI to
-        write scenarios, so offline questions are always definition style.
+        fill-in-the-blank sentences (years and names). Skips questions already listed in
+        `exclude_questions` so repeated quiz runs surface fresh facts instead of duplicates.
         """
         types = question_types or ["multiple_choice"] * count
+        excluded_norms = {
+            re.sub(r"\s+", " ", q.strip().lower())
+            for q in (exclude_questions or [])
+            if isinstance(q, str) and q.strip()
+        }
         definitions = list(_extract_definitions(text))
         terms = [t for t, _ in definitions]
         candidates = _answer_candidates(text)
         clozes = []
-        for sentence in _key_sentences(text, max(12, count * 4)):
+        for sentence in _key_sentences(text, max(24, count * 6)):
             cloze = _make_cloze(sentence, candidates)
             if cloze:
                 clozes.append((sentence, cloze))
 
         questions: List[Dict[str, Any]] = []
 
+        def is_excluded(question_text: str) -> bool:
+            norm = re.sub(r"\s+", " ", question_text.strip().lower())
+            return norm in excluded_norms
+
+        def mark_used(question_text: str) -> None:
+            excluded_norms.add(re.sub(r"\s+", " ", question_text.strip().lower()))
+
         def make(qtype: str, question: str, explanation: str, **fields) -> Dict[str, Any]:
             n = len(questions)
+            mark_used(question)
             return {
                 "question": question,
                 "explanation": explanation,
@@ -629,40 +675,61 @@ class AIService:
 
         def multiple_choice() -> Optional[Dict[str, Any]]:
             correct_idx = len(questions) % 4
-            if definitions and len(terms) >= 4:
-                term, definition = definitions.pop(0)
-                choices = [t for t in terms if t != term][:3]
-                choices.insert(correct_idx, term)
-                return make("multiple_choice", f"Which term matches this description: \"{definition}\"",
-                            f"According to the module, {term}: {definition}", choices=choices, correct_index=correct_idx)
-            while clozes:
-                sentence, cloze = clozes.pop(0)
+            if len(terms) >= 4:
+                for i, (term, definition) in enumerate(definitions):
+                    q_text = f"Which term matches this description: \"{definition}\""
+                    if is_excluded(q_text):
+                        continue
+                    definitions.pop(i)
+                    choices = [t for t in terms if t != term][:3]
+                    choices.insert(correct_idx, term)
+                    return make("multiple_choice", q_text,
+                                f"According to the module, {term}: {definition}", choices=choices, correct_index=correct_idx)
+            for i, (sentence, cloze) in enumerate(clozes):
                 pool = distractors_for(cloze, sentence)
                 if len(pool) >= 3:
+                    q_text = f"Fill in the blank: {cloze['prompt']}"
+                    if is_excluded(q_text):
+                        continue
+                    clozes.pop(i)
                     choices = pool[:3]
                     choices.insert(correct_idx, cloze["answer"])
-                    return make("multiple_choice", f"Fill in the blank: {cloze['prompt']}",
+                    return make("multiple_choice", q_text,
                                 f"The module states: \"{sentence}\"", choices=choices, correct_index=correct_idx)
             return None
 
         def true_false() -> Optional[Dict[str, Any]]:
-            while clozes:
-                sentence, cloze = clozes.pop(0)
+            for i, (sentence, cloze) in enumerate(clozes):
                 pool = distractors_for(cloze, sentence)
                 make_false = len(questions) % 2 == 1 and pool
                 statement = cloze["prompt"].replace("_____", pool[0] if make_false else cloze["answer"], 1)
+                if is_excluded(statement):
+                    # Try flipping true/false polarity before skipping
+                    alt_false = not make_false and bool(pool)
+                    alt_stmt = cloze["prompt"].replace("_____", pool[0] if alt_false else cloze["answer"], 1)
+                    if is_excluded(alt_stmt):
+                        continue
+                    make_false = alt_false
+                    statement = alt_stmt
+                clozes.pop(i)
                 return make("true_false", statement, f"The module states: \"{sentence}\"",
                             choices=["True", "False"], correct_index=1 if make_false else 0)
             return None
 
         def identification() -> Optional[Dict[str, Any]]:
-            if definitions:
-                term, definition = definitions.pop(0)
-                return make("identification", f"What term is described here? \"{definition}\"",
+            for i, (term, definition) in enumerate(definitions):
+                q_text = f"What term is described here? \"{definition}\""
+                if is_excluded(q_text):
+                    continue
+                definitions.pop(i)
+                return make("identification", q_text,
                             f"According to the module, {term}: {definition}", answer_data={"answer": term, "accepted_answers": []})
-            if clozes:
-                sentence, cloze = clozes.pop(0)
-                return make("identification", f"Fill in the blank: {cloze['prompt']}", f"The module states: \"{sentence}\"",
+            for i, (sentence, cloze) in enumerate(clozes):
+                q_text = f"Fill in the blank: {cloze['prompt']}"
+                if is_excluded(q_text):
+                    continue
+                clozes.pop(i)
+                return make("identification", q_text, f"The module states: \"{sentence}\"",
                             answer_data={"answer": cloze["answer"], "accepted_answers": []})
             return None
 

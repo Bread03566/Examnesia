@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import Any, Dict, List, Optional
+from collections import defaultdict
+from typing import Any, Dict, List, Optional, Set
 import datetime
+import re
 
 from app.database import get_db
 from app.identity import get_current_user, get_owned_document
@@ -25,7 +27,32 @@ router = APIRouter(tags=["quizzes"])
 MIXED_TYPES = ["multiple_choice", "identification", "true_false", "matching"]
 
 
-def to_response(q: Question) -> QuestionResponse:
+def normalize_question_text(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip().lower())
+
+
+def mastered_question_ids(db: Session, user_id: int, document_ids: List[int]) -> Set[int]:
+    """
+    A question is considered mastered when the student's most recent attempt on it was correct.
+    If they later miss it again, it drops back out of the mastered set.
+    """
+    if not document_ids:
+        return set()
+    rows = (
+        db.query(QuestionAttempt.question_id, QuestionAttempt.is_correct)
+        .join(QuizAttempt, QuizAttempt.id == QuestionAttempt.attempt_id)
+        .filter(QuizAttempt.user_id == user_id, QuizAttempt.document_id.in_(document_ids))
+        .order_by(QuestionAttempt.answered_at.desc(), QuestionAttempt.id.desc())
+        .all()
+    )
+    latest: Dict[int, bool] = {}
+    for q_id, is_correct in rows:
+        if q_id not in latest:
+            latest[q_id] = bool(is_correct)
+    return {q_id for q_id, ok in latest.items() if ok}
+
+
+def to_response(q: Question, is_mastered: bool = False) -> QuestionResponse:
     return QuestionResponse(
         id=q.id,
         document_id=q.document_id,
@@ -39,6 +66,7 @@ def to_response(q: Question) -> QuestionResponse:
         question_type=q.question_type or "multiple_choice",
         style=q.style,
         answer_data=q.answer_data,
+        is_mastered=is_mastered,
         created_at=q.created_at
     )
 
@@ -52,9 +80,9 @@ async def create_questions(
     style: str = "mixed",
 ) -> List[QuestionResponse]:
     """
-    Generates and stores questions for each (topic, count) pair, spreading a mixed type list across
-    topics. Matching sets need several facts, so they draw on all the planned topics at once instead
-    of a single (often short) topic.
+    Generates and stores fresh, non-duplicate questions for each (topic, count) pair, skipping
+    already-asked and mastered questions. If a short module has exhausted its unique facts,
+    tops up from existing unmastered questions first before ever falling back to mastered ones.
     """
     total = sum(count for _, count in plan)
     sequence = [MIXED_TYPES[i % len(MIXED_TYPES)] for i in range(total)] if question_type == "mixed" else [question_type] * total
@@ -72,6 +100,20 @@ async def create_questions(
     matching_styles = [s for t, s in slots if t == "matching"]
     matching_count = len(matching_styles)
 
+    # Load existing questions & mastered state so we never repeat mastered or duplicate stems
+    existing_questions = (
+        db.query(Question)
+        .filter(Question.document_id == doc.id)
+        .order_by(Question.created_at.desc())
+        .all()
+    )
+    mastered_ids = mastered_question_ids(db, doc.user_id, [doc.id]) if doc.user_id else set()
+    existing_keys = {(q.topic_id, normalize_question_text(q.question_text)) for q in existing_questions}
+    exclude_by_topic: Dict[int, List[str]] = defaultdict(list)
+    for q in existing_questions:
+        if q.topic_id is not None:
+            exclude_by_topic[q.topic_id].append(q.question_text)
+
     async def generate(topic, count) -> List[Dict[str, Any]]:
         return await ai_service.generate_quiz_questions(
             user_id=doc.user_id,
@@ -83,7 +125,8 @@ async def create_questions(
             difficulty=difficulty,
             question_types=types_by_topic[topic.id],
             style=style,
-            question_styles=styles_by_topic[topic.id]
+            question_styles=styles_by_topic[topic.id],
+            exclude_questions=exclude_by_topic.get(topic.id, []),
         )
 
     per_topic_plan = [(topic, len(types_by_topic[topic.id])) for topic, _ in plan if types_by_topic[topic.id]]
@@ -103,16 +146,27 @@ async def create_questions(
             difficulty=difficulty,
             question_types=["matching"] * matching_count,
             style=style,
-            question_styles=matching_styles
+            question_styles=matching_styles,
+            exclude_questions=[q.question_text for q in existing_questions if q.question_type == "matching"],
         )
         results.append((None, matching_count, matching_sets))
 
     created: List[Question] = []
+    seen_in_batch = set()
     for topic, count, generated in results:
-        for q_data in generated[:count]:
+        added_for_topic = 0
+        for q_data in generated:
+            if added_for_topic >= count:
+                break
+            q_topic_id = topic.id if topic else q_data.get("topic_id")
+            key = (q_topic_id, normalize_question_text(q_data["question"]))
+            if key in existing_keys or key in seen_in_batch:
+                continue
+            seen_in_batch.add(key)
+            existing_keys.add(key)
             q = Question(
                 document_id=doc.id,
-                topic_id=topic.id if topic else q_data.get("topic_id"),
+                topic_id=q_topic_id,
                 question_text=q_data["question"],
                 choices=q_data["choices"],
                 correct_index=q_data["correct_index"],
@@ -124,17 +178,57 @@ async def create_questions(
             )
             db.add(q)
             created.append(q)
+            added_for_topic += 1
 
-    if not created:
+    if created:
+        db.commit()
+        for q in created:
+            db.refresh(q)
+
+    selected: List[Question] = list(created)
+
+    # If the module's unique facts are exhausted, top up from existing unmastered questions first
+    if len(selected) < total and existing_questions:
+        planned_topic_ids = {t.id for t, _ in plan}
+        selected_keys = {(q.topic_id, normalize_question_text(q.question_text)) for q in selected}
+
+        def matches_type(q: Question) -> bool:
+            return question_type == "mixed" or (q.question_type or "multiple_choice") == question_type
+
+        in_plan = [
+            q for q in existing_questions
+            if matches_type(q) and (q.topic_id is None or not planned_topic_ids or q.topic_id in planned_topic_ids)
+        ]
+        # Prefer unmastered in planned topics, then mastered in planned topics
+        pools = [
+            [q for q in in_plan if q.id not in mastered_ids],
+            [q for q in in_plan if q.id in mastered_ids],
+        ]
+        # If planned topics yielded nothing at all (e.g. short topic with no MC distractors), fall back to doc-wide
+        if not selected and not in_plan:
+            doc_typed = [q for q in existing_questions if matches_type(q)]
+            pools.extend([
+                [q for q in doc_typed if q.id not in mastered_ids],
+                [q for q in doc_typed if q.id in mastered_ids],
+            ])
+
+        for pool in pools:
+            for q in pool:
+                if len(selected) >= total:
+                    break
+                key = (q.topic_id, normalize_question_text(q.question_text))
+                if key in selected_keys:
+                    continue
+                selected_keys.add(key)
+                selected.append(q)
+
+    if not selected:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Kabi couldn't find enough facts in this text to write quiz questions. Try a longer module, or connect an AI key."
         )
 
-    db.commit()
-    for q in created:
-        db.refresh(q)
-    return [to_response(q) for q in created]
+    return [to_response(q, is_mastered=(q.id in mastered_ids)) for q in selected]
 
 
 @router.post("/api/documents/{document_id}/quiz/generate", response_model=List[QuestionResponse])
@@ -145,13 +239,37 @@ async def generate_quiz_questions(
     user: User = Depends(get_current_user)
 ):
     """
-    Generate multiple-choice questions for a document or specific topic.
-    The requested count is spread across topics, so asking for 5 questions gives about 5 questions.
+    Generate quiz questions for a document or specific topic.
+    Prioritizes uncovered and unmastered topics first so every topic in the module gets covered.
     """
     doc = get_owned_document(db, user, document_id)
     topics = topics_for_generation(db, doc, payload.topic_id)
+
+    # Count existing and mastered questions per topic so uncovered/unmastered topics come first
+    existing = db.query(Question.id, Question.topic_id).filter(Question.document_id == doc.id).all()
+    mastered_ids = mastered_question_ids(db, user.id, [doc.id])
+    total_by_topic: Dict[int, int] = defaultdict(int)
+    mastered_by_topic: Dict[int, int] = defaultdict(int)
+    for q_id, t_id in existing:
+        if t_id is not None:
+            total_by_topic[t_id] += 1
+            if q_id in mastered_ids:
+                mastered_by_topic[t_id] += 1
+
+    def topic_priority(t: Topic):
+        q_total = total_by_topic[t.id]
+        q_mastered = mastered_by_topic[t.id]
+        # Uncovered topics (0 questions) first, then fewest mastered, then unmastered ratio, then length
+        fully_mastered = 1 if (q_total > 0 and q_mastered >= q_total) else 0
+        return (1 - fully_mastered, -q_total, -q_mastered, len(t.content.split()))
+
     return await create_questions(
-        db, doc, plan_counts(topics, payload.count), payload.difficulty or "medium", payload.question_type, payload.style
+        db,
+        doc,
+        plan_counts(topics, payload.count, size_of=topic_priority),
+        payload.difficulty or "medium",
+        payload.question_type,
+        payload.style,
     )
 
 @router.post("/api/documents/{document_id}/quiz/weak-spots", response_model=List[QuestionResponse])
@@ -161,7 +279,8 @@ async def generate_weak_spot_quiz(
     user: User = Depends(get_current_user)
 ):
     """
-    Generates a targeted quiz from the student's lowest-mastery topics (Weak-Spot Quiz).
+    Generates a targeted quiz from the student's lowest-mastery topics (Weak-Spot Quiz),
+    excluding already-mastered topics when weaker or untested topics exist.
     """
     doc = get_owned_document(db, user, document_id)
 
@@ -178,9 +297,12 @@ async def generate_weak_spot_quiz(
         pct = (correct / len(attempts)) * 100 if attempts else 0.0
         topic_scores.append((t, pct, len(attempts)))
 
+    # Prefer topics not yet mastered (< 80% or untested); fall back to all topics if everything is mastered
+    non_mastered = [item for item in topic_scores if item[2] == 0 or item[1] < 80.0]
+    pool = non_mastered or topic_scores
     # Lowest mastery first; among equals, topics with more evidence of struggle first
-    topic_scores.sort(key=lambda x: (x[1], -x[2]))
-    weak_topics = [item[0] for item in topic_scores[:3]]
+    pool.sort(key=lambda x: (x[1], -x[2]))
+    weak_topics = [item[0] for item in pool[:3]]
 
     return await create_questions(db, doc, [(topic, 2) for topic in weak_topics], "medium")
 
@@ -194,7 +316,7 @@ def get_document_questions(
     user: User = Depends(get_current_user)
 ):
     """
-    Get all questions for a document.
+    Get deduplicated questions for a document, ordered with unmastered questions first.
     """
     get_owned_document(db, user, document_id)
     query = db.query(Question).filter(Question.document_id == document_id)
@@ -202,7 +324,21 @@ def get_document_questions(
         query = query.filter(Question.topic_id == topic_id)
     if difficulty and difficulty != "mixed":
         query = query.filter(Question.difficulty == difficulty)
-    return [to_response(q) for q in query.order_by(Question.created_at.desc()).all()]
+    all_questions = query.order_by(Question.created_at.desc()).all()
+    mastered_ids = mastered_question_ids(db, user.id, [document_id])
+
+    # Deduplicate by (topic_id, normalized stem), preferring an unmastered copy if duplicates exist
+    seen: Dict[tuple, Question] = {}
+    for q in all_questions:
+        key = (q.topic_id, normalize_question_text(q.question_text))
+        if key not in seen:
+            seen[key] = q
+        elif seen[key].id in mastered_ids and q.id not in mastered_ids:
+            seen[key] = q
+
+    deduped = list(seen.values())
+    deduped.sort(key=lambda q: (1 if q.id in mastered_ids else 0))
+    return [to_response(q, is_mastered=(q.id in mastered_ids)) for q in deduped]
 
 @router.post("/api/quizzes/check", response_model=AnswerCheckResponse)
 def check_answer(payload: QuestionAttemptInput, db: Session = Depends(get_db), user: User = Depends(get_current_user)):

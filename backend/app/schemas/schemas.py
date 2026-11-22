@@ -127,6 +127,7 @@ class QuestionResponse(BaseModel):
     question_type: str = "multiple_choice"
     style: Optional[str] = None
     answer_data: Optional[Dict[str, Any]] = None
+    is_mastered: bool = False
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

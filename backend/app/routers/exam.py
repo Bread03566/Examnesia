@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.identity import get_current_user, get_owned_document
 from app.models.models import Document, Question, QuestionAttempt, QuizAttempt, User
-from app.routers.quizzes import to_response
+from app.routers.quizzes import mastered_question_ids, normalize_question_text, to_response
 from app.schemas.schemas import QuestionAttemptInput
 from app.services import exam_prep, grading
 
@@ -67,17 +67,58 @@ def make_plan(payload: PlanRequest, db: Session = Depends(get_db), user: User = 
 @router.post("/practice")
 def practice_exam(payload: PracticeRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     docs = _owned(db, user, payload.document_ids)
-    bank = (db.query(Question).filter(Question.document_id.in_([d.id for d in docs]),
-                                      Question.question_type != "matching").all())
-    if not bank:
+    doc_ids = [d.id for d in docs]
+    raw_bank = (
+        db.query(Question)
+        .filter(Question.document_id.in_(doc_ids), Question.question_type != "matching")
+        .order_by(Question.created_at.desc())
+        .all()
+    )
+    if not raw_bank:
         return {"questions": [], "note": "No quiz questions yet for these modules. Generate a quiz first, then come back."}
+
+    mastered_ids = mastered_question_ids(db, user.id, doc_ids)
+
+    # Deduplicate by (document_id, topic_id, normalized question_text), keeping unmastered over mastered
+    deduped_map = {}
+    for q in raw_bank:
+        key = (q.document_id, q.topic_id, normalize_question_text(q.question_text))
+        if key not in deduped_map or (deduped_map[key].id in mastered_ids and q.id not in mastered_ids):
+            deduped_map[key] = q
+    bank = list(deduped_map.values())
+
     known = exam_prep.understanding(db, user.id, [q.topic_id for q in bank if q.topic_id])
-    pool = [(q, 1.5 - known[q.topic_id]["percentage"] / 100 if q.topic_id in known else 1.0) for q in bank]
-    chosen = []
-    for _ in range(min(payload.count, len(pool))):  # weighted draw without replacement: weak topics come up more
-        pick = random.choices(range(len(pool)), weights=[w for _, w in pool])[0]
-        chosen.append(pool.pop(pick)[0])
-    return {"questions": [to_response(q) for q in chosen], "note": ""}
+
+    def weight_for(q: Question) -> float:
+        return max(0.1, 1.5 - known[q.topic_id]["percentage"] / 100) if q.topic_id in known else 1.0
+
+    def draw_stratified(questions_pool: List[Question], limit: int) -> List[Question]:
+        by_doc: dict[int, List[tuple]] = defaultdict(list)
+        for q in questions_pool:
+            by_doc[q.document_id].append((q, weight_for(q)))
+        picked: List[Question] = []
+        active_docs = [d.id for d in docs if by_doc[d.id]]
+        while len(picked) < limit and active_docs:
+            next_active = []
+            for d_id in active_docs:
+                if len(picked) >= limit:
+                    break
+                bucket = by_doc[d_id]
+                idx = random.choices(range(len(bucket)), weights=[w for _, w in bucket])[0]
+                picked.append(bucket.pop(idx)[0])
+                if bucket:
+                    next_active.append(d_id)
+            active_docs = next_active
+        return picked
+
+    unmastered = [q for q in bank if q.id not in mastered_ids]
+    mastered = [q for q in bank if q.id in mastered_ids]
+
+    chosen = draw_stratified(unmastered, payload.count)
+    if len(chosen) < payload.count and mastered:
+        chosen.extend(draw_stratified(mastered, payload.count - len(chosen)))
+
+    return {"questions": [to_response(q, is_mastered=(q.id in mastered_ids)) for q in chosen], "note": ""}
 
 
 @router.post("/submit")

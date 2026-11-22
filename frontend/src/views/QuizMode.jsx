@@ -124,8 +124,18 @@ export default function QuizMode({
   };
 
   const handlePracticeSaved = () => {
-    const picked = [...savedQuestions].sort(() => Math.random() - 0.5).slice(0, targetCount);
+    const unmastered = savedQuestions.filter((q) => !q.is_mastered).sort(() => Math.random() - 0.5);
+    const mastered = savedQuestions.filter((q) => q.is_mastered).sort(() => Math.random() - 0.5);
+    const picked = [...unmastered, ...mastered].slice(0, targetCount);
     startQuiz(picked);
+  };
+
+  const mergeSavedQuestions = (incoming) => {
+    setSavedQuestions((prev) => {
+      const byId = new Map(prev.map((q) => [q.id, q]));
+      for (const q of incoming) byId.set(q.id, q);
+      return Array.from(byId.values());
+    });
   };
 
   const handleGenerateQuestions = async () => {
@@ -140,7 +150,7 @@ export default function QuizMode({
         questionType,
         quizStyle
       );
-      setSavedQuestions((prev) => [...newQuestions, ...prev]);
+      mergeSavedQuestions(newQuestions);
       startQuiz(newQuestions);
       showToast('success', `${newQuestions.length} questions are ready for you!`);
     } catch (err) {
@@ -155,7 +165,7 @@ export default function QuizMode({
     try {
       showToast('info', 'Building a Weak-Spot Quiz from the topics you struggle with...');
       const weakQuestions = await generateWeakSpotQuiz(documentId);
-      setSavedQuestions((prev) => [...weakQuestions, ...prev]);
+      mergeSavedQuestions(weakQuestions);
       startQuiz(weakQuestions);
       showToast('success', 'Your Weak-Spot Quiz is ready! Let\'s go!');
     } catch (err) {
@@ -212,6 +222,12 @@ export default function QuizMode({
         initialTopicId
       );
       setQuizResult(result);
+      if (Array.isArray(result.results)) {
+        const outcomeById = new Map(result.results.map((r) => [r.question_id, Boolean(r.is_correct)]));
+        setSavedQuestions((prev) =>
+          prev.map((q) => (outcomeById.has(q.id) ? { ...q, is_mastered: outcomeById.get(q.id) } : q))
+        );
+      }
 
       if (result.percentage >= 80) {
         confetti({

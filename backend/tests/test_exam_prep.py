@@ -152,3 +152,86 @@ def test_submit_ignores_questions_that_are_not_mine_and_rejects_an_empty_exam(cl
     res = client.post("/api/exam/submit", headers=a, json={"answers": [{"question_id": qb[0]["id"], "selected_index": 0}]})
     assert res.status_code == 400
     assert client.post("/api/exam/submit", headers=a, json={"answers": []}).status_code in (400, 422)
+
+
+RICH_BIOLOGY_TEXT = "\n\n".join(
+    f"Chapter {i}: Biological System {i}\n"
+    f"OrganelleA{i}: The primary energy converter inside eukaryotic cells for unit {i}.\n"
+    f"OrganelleB{i}: The membrane network that folds and transports proteins in unit {i}.\n"
+    f"OrganelleC{i}: The digestive compartment that breaks down cellular waste in unit {i}.\n"
+    f"OrganelleD{i}: The storage sac that regulates water balance and turgor in unit {i}."
+    for i in range(1, 7)
+)
+
+
+def test_quiz_generation_avoids_repeating_mastered_questions_and_covers_all_topics(client):
+    headers, _, _ = register_user(client)
+    res = client.post("/api/documents/text", headers=headers, json={"title": "Biology Full", "text": RICH_BIOLOGY_TEXT})
+    assert res.status_code == 201
+    doc = res.json()
+    all_topic_ids = {t["id"] for t in doc["topics"]}
+    assert len(all_topic_ids) == 6
+
+    # Quiz 1: ask for 3 questions out of 6 topics
+    q1 = client.post(
+        f"/api/documents/{doc['id']}/quiz/generate",
+        headers=headers,
+        json={"count": 3, "question_type": "multiple_choice"},
+    ).json()
+    assert len(q1) == 3
+    q1_texts = {q["question_text"] for q in q1}
+    q1_topics = {q["topic_id"] for q in q1}
+
+    # Student masters all 3 questions from Quiz 1
+    answer(client, headers, doc, q1, correct=True)
+
+    # Quiz 2: ask for 3 more questions — should cover the remaining 3 uncovered topics and NOT repeat Quiz 1
+    q2 = client.post(
+        f"/api/documents/{doc['id']}/quiz/generate",
+        headers=headers,
+        json={"count": 3, "question_type": "multiple_choice"},
+    ).json()
+    assert len(q2) == 3
+    q2_texts = {q["question_text"] for q in q2}
+    q2_topics = {q["topic_id"] for q in q2}
+
+    assert q1_texts.isdisjoint(q2_texts), f"Repeated mastered questions: {q1_texts & q2_texts}"
+    assert q1_topics | q2_topics == all_topic_ids, "Combined quizzes should cover every topic in the module"
+
+    # Saved questions endpoint marks mastered ones and returns unmastered first without duplicates
+    saved = client.get(f"/api/documents/{doc['id']}/questions", headers=headers).json()
+    saved_texts = [q["question_text"] for q in saved]
+    assert len(saved_texts) == len(set(saved_texts))
+    mastered_flags = [q["is_mastered"] for q in saved]
+    assert mastered_flags.count(True) == len(q1)
+    assert mastered_flags[: len(q2)] == [False] * len(q2)
+
+
+def test_practice_exam_excludes_mastered_questions_and_covers_all_selected_modules(client):
+    headers, _, _ = register_user(client)
+    d1 = client.post("/api/documents/text", headers=headers, json={"title": "Module Alpha", "text": RICH_BIOLOGY_TEXT}).json()
+    d2 = client.post("/api/documents/text", headers=headers, json={"title": "Module Beta", "text": RICH_BIOLOGY_TEXT}).json()
+    d3 = client.post("/api/documents/text", headers=headers, json={"title": "Module Gamma", "text": RICH_BIOLOGY_TEXT}).json()
+
+    q1 = generate(client, headers, d1, d1["topics"][0]["id"], 2)
+    q2 = generate(client, headers, d2, d2["topics"][0]["id"], 2)
+    q3 = generate(client, headers, d3, d3["topics"][0]["id"], 2)
+    assert len(q1) == 2 and len(q2) == 2 and len(q3) == 2
+
+    # Master the first question of each module
+    answer(client, headers, d1, [q1[0]], correct=True)
+    answer(client, headers, d2, [q2[0]], correct=True)
+    answer(client, headers, d3, [q3[0]], correct=True)
+    mastered_ids = {q1[0]["id"], q2[0]["id"], q3[0]["id"]}
+
+    # Request 3 practice questions across all 3 modules: should pick 1 unmastered from EACH module
+    res = client.post(
+        "/api/exam/practice",
+        headers=headers,
+        json={"document_ids": [d1["id"], d2["id"], d3["id"]], "count": 3},
+    )
+    assert res.status_code == 200
+    picked = res.json()["questions"]
+    assert len(picked) == 3
+    assert {q["document_id"] for q in picked} == {d1["id"], d2["id"], d3["id"]}
+    assert {q["id"] for q in picked}.isdisjoint(mastered_ids)
