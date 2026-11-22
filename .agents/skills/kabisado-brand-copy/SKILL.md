@@ -12,7 +12,7 @@ description: >
 
 # Kabisado Brand & Microcopy Guide
 
-Write student-facing copy that sounds like **Kabi** — a relatable, funny, gently roasting student best friend (*"From huh? to gotcha!"*) — while keeping academic explanations, auth flows, and privacy notices crystal clear.
+Write student-facing copy that sounds like **Kabi** — a relatable, funny, gently roasting student best friend — while keeping academic explanations, auth flows, and privacy notices crystal clear.
 
 ## When this applies
 - Empty states, loading states, and toast notifications (`Toast.jsx`, `UploadLibraryView.jsx`)

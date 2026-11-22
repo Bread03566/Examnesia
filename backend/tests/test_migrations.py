@@ -97,3 +97,34 @@ def test_users_email_column_is_gone(sqlite_url):
     assert "email" not in {c["name"] for c in inspect(create_engine(sqlite_url)).get_columns("users")}
     insp = inspect(create_engine(sqlite_url))
     assert insp.has_table("sessions") and insp.has_table("login_attempts")
+
+
+def test_migration_0007_session_client_type_check_and_downgrade(sqlite_url):
+    from sqlalchemy.exc import IntegrityError
+
+    cfg = alembic_config(sqlite_url)
+    command.upgrade(cfg, "head")
+    engine = create_engine(sqlite_url)
+    with engine.begin() as conn:
+        _insert_user(conn, "sess-owner")
+        uid = conn.exec_driver_sql("SELECT id FROM users WHERE username = 'sess-owner'").scalar_one()
+        conn.exec_driver_sql(
+            "INSERT INTO sessions (user_id, family_id, refresh_hash, expires_at) VALUES (?, 'fam1', 'h1', '2099-01-01 00:00:00')",
+            (uid,),
+        )
+        default_ct = conn.exec_driver_sql("SELECT client_type FROM sessions WHERE refresh_hash = 'h1'").scalar_one()
+        assert default_ct == "web"
+        conn.exec_driver_sql(
+            "INSERT INTO sessions (user_id, family_id, refresh_hash, client_type, expires_at) VALUES (?, 'fam2', 'h2', 'native', '2099-01-01 00:00:00')",
+            (uid,),
+        )
+    with pytest.raises(IntegrityError):
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                "INSERT INTO sessions (user_id, family_id, refresh_hash, client_type, expires_at) VALUES (?, 'fam3', 'h3', 'desktop', '2099-01-01 00:00:00')",
+                (uid,),
+            )
+    command.downgrade(cfg, "0006")
+    assert "client_type" not in {c["name"] for c in inspect(create_engine(sqlite_url)).get_columns("sessions")}
+    command.upgrade(cfg, "head")
+    assert "client_type" in {c["name"] for c in inspect(create_engine(sqlite_url)).get_columns("sessions")}

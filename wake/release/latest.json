@@ -1,0 +1,19 @@
+{
+  "version_name": "1.0.0",
+  "version_code": 10000,
+  "min_supported_version_code": 10000,
+  "min_sdk": 24,
+  "min_android_version": "Android 7.0 (Nougat)",
+  "published": false,
+  "apk_url": null,
+  "sha256": null,
+  "signing_cert_sha256": null,
+  "file_size_bytes": null,
+  "release_date": null,
+  "mandatory": false,
+  "release_notes": [
+    "Unified Kabisado Web and Android study companion using the same account and modules.",
+    "PDF, DOCX, and plain-text module upload with automatic topic segmentation.",
+    "Three-level summaries (Mabilisan, Standard, Detalyado), 3D flashcards with SM-2 due queue, practice quizzes, Ask Kabisado chat, and Exam Prep."
+  ]
+}

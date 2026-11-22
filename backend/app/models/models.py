@@ -57,11 +57,13 @@ class PasswordResetCode(Base):
 class UserSession(Base):
     """One refresh-token generation. Rotation creates a successor in the same family."""
     __tablename__ = "sessions"
+    __table_args__ = (CheckConstraint("client_type IN ('web', 'native')", name="ck_sessions_client_type"),)
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     family_id = Column(String(36), nullable=False, index=True)
     refresh_hash = Column(String(64), unique=True, nullable=False)  # sha256 of the token; plaintext never stored
+    client_type = Column(String(10), nullable=False, default="web", server_default="web")
     created_at = Column(DateTime, default=utc_now)
     expires_at = Column(DateTime, nullable=False)
     revoked_at = Column(DateTime, nullable=True)

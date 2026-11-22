@@ -74,3 +74,19 @@ def test_old_failures_age_out(db):
     for _ in range(4):
         throttle.record_failure(db, u, "1.2.3.4")  # the 3 old failures expired, so only 4 count
     throttle.check_allowed(db, u, "1.2.3.4")
+
+
+def test_account_wide_progressive_backoff_slows_distributed_ip_rotation(db):
+    u = name()
+    for i in range(12):
+        throttle.record_failure(db, u, f"10.0.0.{i}")
+    throttle.check_allowed(db, u, "10.0.0.99")  # 12 distributed failures are still below the account-wide threshold
+
+    throttle.record_failure(db, u, "10.0.0.13")  # 13th failure triggers account-wide progressive delay
+    with pytest.raises(HTTPException) as exc:
+        throttle.check_allowed(db, u, "10.0.0.99")
+    assert exc.value.status_code == 429
+    assert 1 <= int(exc.value.headers["Retry-After"]) <= 30
+
+    throttle.record_success(db, u, "10.0.0.99")
+    throttle.check_allowed(db, u, "10.0.0.99")

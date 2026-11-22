@@ -39,18 +39,41 @@ def docs_urls(debug: bool) -> dict:
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    description="Backend API for Kabisado - AI-Powered Study App (From huh? to gotcha!)",
+    description="Backend API for Kabisado - AI-Powered Study App",
     lifespan=lifespan,
     **docs_urls(settings.DEBUG),
 )
 
-# CORS setup
+@app.middleware("http")
+async def native_version_gate(request: Request, call_next):
+    """Reject outdated native Android clients when MIN_NATIVE_VERSION_CODE is set (except health check)."""
+    if settings.MIN_NATIVE_VERSION_CODE > 0 and request.url.path != "/api/health":
+        client_header = (request.headers.get("x-kabisado-client") or "").strip().lower()
+        if client_header.startswith("android/"):
+            raw_ver = client_header.split("/", 1)[1].strip()
+            try:
+                version_code = int(raw_ver)
+            except ValueError:
+                version_code = -1
+            if version_code < settings.MIN_NATIVE_VERSION_CODE:
+                return JSONResponse(
+                    status_code=status.HTTP_426_UPGRADE_REQUIRED,
+                    content={
+                        "detail": "Please update the Kabisado app to continue.",
+                        "code": "UPGRADE_REQUIRED",
+                        "min_version_code": settings.MIN_NATIVE_VERSION_CODE,
+                    },
+                )
+    return await call_next(request)
+
+
+# CORS setup (registered after native_version_gate so 426 responses also carry Access-Control-Allow-Origin)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.allowed_origins,
+    allow_origins=settings.cors_origins,
     allow_credentials=False,  # auth uses the Authorization header, so no ambient credentials
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Kabisado-Request"],
+    allow_headers=["Authorization", "Content-Type", "X-Kabisado-Request", "X-Kabisado-Client"],
 )
 
 # Include routers
@@ -70,14 +93,14 @@ app.include_router(exam.router)
 
 @app.get("/api/health")
 def health_check():
+    ai_on = ai_service.is_api_configured()
     return {
         "status": "healthy",
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
-        "ai_configured": ai_service.is_api_configured(),
-        "ai_provider": "gemini" if ai_service.is_api_configured() else "offline",
-        "ai_model": settings.GEMINI_MODEL if ai_service.is_api_configured() else None,
-        "tagline": "From huh? to gotcha!"
+        "ai_configured": ai_on,
+        "ai_provider": "gemini" if ai_on else "offline",
+        "ai_model": settings.GEMINI_MODEL if ai_on else None,
     }
 
 if not Path(settings.STATIC_DIR, "index.html").is_file():  # with a built frontend, "/" is the app
@@ -85,7 +108,6 @@ if not Path(settings.STATIC_DIR, "index.html").is_file():  # with a built fronte
     def root():
         return {
             "message": "Welcome to Kabisado API.",
-            "tagline": "From huh? to gotcha!",
             "docs_url": "/docs",
             "health": "/api/health"
         }

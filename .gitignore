@@ -57,3 +57,19 @@ yarn-error.log*
 Thumbs.db
 .vscode/
 .idea/
+
+# Android Signing Keys & Build Artifacts (NEVER commit signing keys or passwords)
+*.jks
+*.keystore
+key.properties
+local.properties
+*.pem
+*manifest*key*
+*.apk
+*.aab
+frontend/android/.gradle/
+frontend/android/build/
+frontend/android/app/build/
+frontend/android/app/src/main/assets/public/
+frontend/android/app/src/main/assets/capacitor.config.json
+frontend/android/app/src/main/assets/capacitor.plugins.json

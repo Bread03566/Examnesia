@@ -3,11 +3,14 @@ import Navbar from './components/Navbar';
 import Toast from './components/Toast';
 import Companion from './components/Companion';
 import StatePanel from './components/StatePanel';
+import UpdateModal from './components/UpdateModal';
 import UploadLibraryView from './views/UploadLibraryView';
 import { useAuth } from './components/AuthGate';
-import { CloudOff, X } from 'lucide-react';
+import { CloudOff, WifiOff, X } from 'lucide-react';
 import { getDocuments, checkHealth } from './services/api';
 import { usePetEmoji } from './components/pets';
+import { isNativePlatform, isOnline, onNetworkChange, registerBackHandler } from './platform/index';
+import { checkForAndroidUpdate } from './platform/updater';
 
 const DocumentView = lazy(() => import('./views/DocumentView'));
 const FlashcardStudyMode = lazy(() => import('./views/FlashcardStudyMode'));
@@ -50,7 +53,40 @@ export default function App() {
   const [isWeakSpotQuizMode, setIsWeakSpotQuizMode] = useState(false);
   const [aiConfigured, setAiConfigured] = useState(null);
   const [offlineNoticeDismissed, setOfflineNoticeDismissed] = useState(false);
+  const [networkOnline, setNetworkOnline] = useState(() => isOnline());
+  const [updateInfo, setUpdateInfo] = useState(null);
   const [toast, setToast] = useState(null);
+
+  useEffect(() => onNetworkChange((connected) => setNetworkOnline(connected)), []);
+
+  // Automatic Android APK update check on launch (native platform only)
+  useEffect(() => {
+    if (!isNativePlatform()) return undefined;
+    let live = true;
+    checkForAndroidUpdate().then((res) => {
+      if (live && (res.status === 'optional_update' || res.status === 'mandatory_update')) {
+        setUpdateInfo(res);
+      }
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  // Android hardware Back button navigation: walk back to parent view before allowing app exit on library root
+  useEffect(() => {
+    return registerBackHandler(() => {
+      if (['flashcards', 'quiz', 'chat'].includes(activeView)) {
+        setActiveView('document');
+        return true;
+      }
+      if (['document', 'dashboard', 'exam', 'admin'].includes(activeView)) {
+        setActiveView('library');
+        return true;
+      }
+      return false;
+    });
+  }, [activeView]);
 
   const fetchHealthAndDocs = useCallback(async () => {
     try {
@@ -167,6 +203,17 @@ export default function App() {
         currentDoc={currentDoc}
       />
 
+      {!networkOnline && (
+        <div role="status" className="animate-in fade-in slide-in-from-top-2 border-b border-rose-200 bg-rose-50 text-rose-950">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-2 flex items-center gap-3 text-xs font-medium">
+            <WifiOff className="w-4 h-4 shrink-0 text-rose-700" />
+            <p className="flex-1 leading-snug">
+              You&apos;re offline right now. Check your internet connection — unsent work on this screen stays here until you reconnect.
+            </p>
+          </div>
+        </div>
+      )}
+
       {aiConfigured === false && !offlineNoticeDismissed && (
         <div className="animate-in fade-in slide-in-from-top-2 border-b border-amber-200 bg-amber-50 text-amber-950">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 py-2 flex items-center gap-3 text-xs">
@@ -271,8 +318,6 @@ export default function App() {
           <div className="max-w-6xl mx-auto px-6 flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <span translate="no" className="notranslate font-bold text-slate-900">Kabisado {petEmoji}</span>
-              <span>·</span>
-              <span>From huh? to gotcha!</span>
             </div>
             <span className="text-slate-500">Privacy-first study companion</span>
           </div>
@@ -284,6 +329,9 @@ export default function App() {
 
       {/* Toast Notifications */}
       <Toast toast={toast} onClose={() => setToast(null)} />
+
+      {/* Android APK Update Dialog */}
+      {updateInfo && <UpdateModal updateInfo={updateInfo} onClose={() => setUpdateInfo(null)} />}
     </div>
   );
 }

@@ -1,35 +1,30 @@
-# Security review (Phase 9)
+# Security Review (Phase 8 — Unified Web, Android & Public Landing Page)
 
-Done by the author, not an outside auditor. Nothing here is a claim that Kabisado is "completely secure".
-What was checked, what was found, and what is still open.
+Done by the project team with independent multi-model review, not an external penetration-testing firm. Nothing here is a claim that Kabisado is "completely secure".
+What was checked, what was found, and what remains open.
 
-## Checked, with evidence
+## Checked, with automated test evidence
 
-| Area | Result |
+| Area | Control & Verification Result |
 |---|---|
-| Every `/api/*` route rejects an anonymous caller | A test walks the API schema and calls all 40 protected routes without a login; each returns 401. A new unprotected route fails the suite. Only health, register, login, refresh, logout and recover are public. |
-| One student cannot read another's data | Ownership matrix tests (documents, topics, flashcards, quizzes, chat, progress, flags, exam prep, export). Another student's id returns 404, so ids cannot be probed. |
-| Admin routes | Server enforces the role on every `/api/admin/*` route; students get 403. Admins cannot deactivate themselves or other admins. Every admin change is audit-logged. |
-| Passwords and recovery | Argon2id (t=2, 19 MiB), per-account and per-IP throttling with backoff, one-time recovery code stored only as a hash. |
-| Sessions | 15-minute access token held in memory; refresh token in an `HttpOnly`, `Secure`, `SameSite=Strict`, `__Host-` cookie, rotated, reuse detected; deactivation revokes everything. |
-| CORS | Explicit origin list, no wildcard; a random origin gets no CORS headers (checked on the live site). |
-| Response headers | Live HTML has a CSP (`default-src 'self'`, `frame-ancestors 'none'`), `Referrer-Policy: no-referrer`, `nosniff`; API responses are `no-store`. |
-| API docs | **Found open in production and fixed:** `/docs`, `/redoc` and `/openapi.json` were public. They are now disabled unless `DEBUG=true` (test: `test_interactive_api_docs_are_off_unless_debug`). |
-| Error handling | A test forces an internal error and confirms no internal detail or connection string reaches the response. |
-| Uploads | Magic-byte check, macro and zip-bomb rejection, size and length caps, per-student and global quotas, originals discarded. |
-| Gemini | Off. Gate re-checks consent from the database before every request; fails closed; tests prove zero requests without consent. |
-| Secrets in logs | No log call mentions passwords, tokens, recovery codes or secrets. |
-| Frontend | No `dangerouslySetInnerHTML`, `innerHTML` or `eval`. |
-| Dependencies | `npm audit --omit=dev`: 0 vulnerabilities. `pip-audit` on `requirements.txt`: none known (on the review date). |
+| **1. Authentication & API access control** | Every `/api/*` route rejects anonymous callers (`401`). `backend/tests/test_security_review.py` walks the OpenAPI schema and verifies all protected routes require a valid bearer token. Only `/api/health`, `/api/auth/{register,login,forgot-password,reset-password,refresh,logout,recover}`, and `/api/auth/native/{register,login,reset-password,recover,refresh,logout}` are public. |
+| **2. Authorization & ownership isolation** | Ownership matrix tests (`backend/tests/test_ownership_matrix.py`) verify documents, topics, flashcards, quizzes, chat, progress, flags, exam prep, and export. Accessing another student's resource ID returns `404` (not `403`) so IDs cannot be enumerated. Server enforces `role == "admin"` on every `/api/admin/*` route (`403` for students) and records an append-only `AuditLog` entry for every admin mutation. |
+| **3. Password hashing & recovery** | Argon2id (`t=2`, `19 MiB` in production), NFKC username/email normalization, 6-digit Gmail SMTP reset codes stored only as HMAC-SHA256 hashes (15-min TTL, max 5 attempts, 60s resend cooldown), and one-time hashed recovery codes for CLI-created admin accounts. |
+| **4. Dual-transport sessions & token storage** | **Web:** 15-min HS256 JWT held in JS memory only; 7-day rotating refresh token in an `HttpOnly`, `Secure`, `SameSite=Strict`, `__Host-kabisado_rt` cookie. **Android (Capacitor):** 15-min JWT in JS memory only; 7-day rotating refresh token encrypted via hardware-backed `AndroidKeyStore` (`AES/GCM/NoPadding`, 256-bit key in `KabisadoKeystorePlugin.java`) and never stored in `localStorage` or `sessionStorage`. Migration `0007_session_client_type` enforces `client_type IN ('web', 'native')` so web and native tokens can never cross flows (`test_web_and_native_sessions_cannot_cross_flows`). Reuse outside the 10s grace window revokes the entire session family. |
+| **5. CSRF, CORS & XSS protection** | Web cookie routes require `X-Kabisado-Request: 1` and validate `Origin` strictly against `ALLOWED_ORIGINS` (`NATIVE_ORIGINS` is allowed in CORS preflight only, with `allow_credentials=False`, and rejected by `require_cookie_csrf`). Production HTML and native Capacitor builds enforce strict CSP (`default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'`), and `DesignSystem.test.js` fails if `dangerouslySetInnerHTML`, `innerHTML`, or `eval()` is introduced. |
+| **6. Gemini AI kill switch & per-student consent gate** | `GEMINI_ENABLED` defaults to `False`. Even when enabled via env var or the Admin Console master switch (`POST /api/admin/system/gemini`), `app/services/consent.py` re-reads the database before every Google API call and fails closed unless `user.is_active`, `user.age_band == "adult"`, `user.gemini_consent == True`, and `user.consent_policy_version == CURRENT_POLICY_VERSION` all hold (`test_admin_enabling_gemini_never_bypasses_individual_student_consent`). |
+| **7. File upload validation & quotas** | Magic-byte validation (`%PDF-` and `.docx` ZIP structure), macro (`vbaProject.bin`) and zip-bomb rejection (`DOCX_MAX_UNCOMPRESSED_MB=50`, `MAX_ZIP_ENTRIES=2000`), 10 MB upload cap, 400k character cap per module, 25 modules / 5 MB text per student, 90% of 300 MB global text budget, and immediate discard of original files after text extraction. |
+| **8. SQL injection & error handling** | All database queries use SQLAlchemy parameterized expressions. A global exception handler logs internal errors server-side and returns a generic `500` JSON message (`test_unhandled_errors_do_not_leak_internals`). Interactive API docs (`/docs`, `/redoc`, `/openapi.json`) are disabled unless `DEBUG=true`. |
+| **9. Rate limiting & progressive back-off** | Per-(account, IP) exponential back-off (4 free failures, then `2..900s`) plus an account-wide distributed-IP progressive back-off (`ACCOUNT_FREE_FAILURES=12`, capped at `30s`) that slows distributed IP rotation without allowing an attacker to permanently lock out the real owner (`test_throttle.py`). Hourly IP registration cap (`REGISTER_LIMIT_PER_HOUR=20`). |
+| **10. Android permissions & backup hardening** | `AndroidManifest.xml` requests only `INTERNET`, `ACCESS_NETWORK_STATE`, and `REQUEST_INSTALL_PACKAGES` (for user-confirmed APK updates). `android:allowBackup="false"` and `android:fullBackupContent="false"` prevent cloud backup of Keystore-encrypted ciphertext without its hardware key. `FileProvider` in `file_paths.xml` is scoped strictly to `cache/updates/`. |
+| **11. APK signing & update integrity** | Public release metadata (`wake/release/latest.json`) is signed with a separate Ed25519 manifest-signing key (`latest.json.sig`) verified via WebCrypto before parsing (`updater.test.js`, `test_release_tool.py`). Before launching Android's system package installer, `KabisadoUpdaterPlugin.java` enforces HTTPS GitHub Releases URLs, verifies the APK's SHA-256 in constant time, and verifies via `PackageManager.getPackageArchiveInfo` that the APK's package name (`com.kabisado.app`) and signing certificate match the installed app and its `versionCode` is strictly newer. Never performs silent installs. |
+| **12. Offline & cross-platform consistency** | v1 implements Tier 0 offline-awareness (detecting lost connectivity and displaying a clear offline banner without caching sensitive study data offline). Bidirectional Web ↔ Android sync is verified in `test_cross_platform_bidirectional_web_and_android_workflow`. |
+| **13. Dependencies** | `npm audit --omit=dev`: `0` vulnerabilities. Backend and frontend suites pass (`239` backend pytest tests, `44` frontend vitest tests, `0` oxlint errors). |
 
-## Still open (owner or later work)
+## Still open (owner or later operational checks)
 
-- **Client IP behind Render's proxy.** The throttle trusts the *last* `X-Forwarded-For` hop (`TRUST_PROXY=true`). This has not been confirmed on Render. If it is wrong, all students share one throttle bucket or an attacker can pick their own. Verify by logging in from two networks and checking that failures on one do not throttle the other.
-- **No second factor and no email recovery.** By design (no email or phone). Losing the password and the recovery code loses the account.
-- **Login takes about 4 s on Render** (Argon2id on a 0.1 CPU instance plus distant database). Safe, but slow.
-- **The infrastructure owner can read and edit everything** in Supabase. The consent log's hash chain detects edits; it does not stop the project owner.
-- **Backups are only as good as their first restore test.** Set up the two GitHub secrets and run a restore once.
-- **Gemini billing and terms** must be reviewed by the owner before it is ever enabled.
-- **Browser matrix not run** (Safari/Firefox cookie behaviour, phone layouts, keyboard and screen-reader use).
-- **No rate limit on uploads or chat** beyond the quotas; a signed-in student can still make many requests.
-- **No external penetration test** (out of budget).
+- **Client IP behind Render's proxy:** `TRUST_PROXY=true` trusts the last `X-Forwarded-For` hop. Confirm on the live Render deployment from two networks that failures on one network do not throttle the other via the per-IP key.
+- **No second factor:** Students recover forgotten passwords via a 6-digit Gmail SMTP reset code; CLI-created admin accounts use their one-time recovery code.
+- **Physical Android device install & upgrade test:** Because JDK 21 and the Android SDK are not installed on the local Windows development machine, compiling the signed release APK (`./gradlew assembleRelease`) or running `.github/workflows/android-build.yml` and testing an upgrade from an older signed build (`versionCode 10000` → `10001`) on a real Android phone must be performed before publishing `published: true` in `wake/release/latest.json`.
+- **Android developer verification:** Google's developer verification requirement for sideloaded APKs (live in BR/ID/SG/TH since 30 Sep 2026; global expansion from 2027) offers a free **Limited Distribution Account** in the Android Developer Console capped at **50 authorized devices**. Public distribution beyond 50 devices requires owner approval.
+- **Infrastructure owner trust:** Whoever owns the Supabase project can read or edit database rows directly; `consent_log`'s hash chain detects edits (`python -m app.cli verify-consent-log`) rather than preventing them by the project owner.

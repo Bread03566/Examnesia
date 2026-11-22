@@ -101,7 +101,6 @@ export default function AuthView({ onRecover, onPrivacy }) {
       <div className="flex flex-col items-center text-center mb-5">
         <Mascot mood="happy" size="lg" />
         <h1 translate="no" className="notranslate mt-2 text-2xl font-extrabold text-slate-900">Kabisado</h1>
-        <p className="text-sm text-slate-500 italic">From huh? to gotcha!</p>
       </div>
 
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 sm:p-8">

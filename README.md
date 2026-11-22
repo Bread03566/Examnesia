@@ -1,11 +1,10 @@
-# Kabisado 🦉 — From huh? to gotcha!
+# Kabisado 🦉
 
 > **Kabisado** (Tagalog for *"memorized"* or *"mastered"*) is an AI-powered study companion designed for students. Students upload their handouts, lecture notes, or modules, and Kabisado turns them into bite-sized summaries, interactive flashcards, and multiple-choice quizzes with instant grounded feedback.
 
 ---
 
 ## 🦉 Brand & Persona
-- **Tagline**: *"From huh? to gotcha!"*
 - **Vibe**: Relatable, funny, and dramatic like a student best friend who roasts you gently for procrastinating, then stays up all night to help you pass.
 - **Microcopy**: Light Taglish interface touches (e.g., *"Wala ka pang module. Bukas na naman?"*, *"Hala siya, Dean's Lister yarn?! 🦉✨"*), paired with crystal-clear, serious academic explanations.
 - **Mascot**: **Kabi**, the sleepy, caffeine-fueled owl who wears a nightcap or study glasses.
@@ -18,85 +17,89 @@
 Kabisado-project/
 ├── backend/
 │   ├── app/
-│   │   ├── __init__.py
-│   │   ├── main.py              # FastAPI app initialization, CORS, lifespan & error handlers
+│   │   ├── main.py              # FastAPI app initialization, CORS, 426 gate, lifespan & error handlers
 │   │   ├── config.py            # App settings (Pydantic Settings)
-│   │   ├── database.py          # SQLAlchemy SQLite connection with WAL mode & foreign keys
+│   │   ├── database.py          # SQLAlchemy Postgres (Supabase pooler) & local SQLite connection
 │   │   ├── models/
-│   │   │   ├── __init__.py
-│   │   │   └── models.py        # ORM models (User, Document, Topic, Flashcard, Question, etc.)
-│   │   ├── schemas/
-│   │   │   ├── __init__.py
-│   │   │   └── schemas.py       # Pydantic v2 validation models
-│   │   ├── services/
-│   │   │   ├── parser_service.py    # PDF (PyMuPDF), DOCX (python-docx), and text parsing
-│   │   │   ├── segmenter_service.py # Topic extraction and academic heading chunking
-│   │   │   └── ai_service.py        # Gemini client (with model fallback), JSON validation & offline engine
-│   │   └── routers/
-│   │       ├── documents.py     # Upload, paste, document CRUD
-│   │       ├── summaries.py     # Brief, standard, detailed summaries + key terms
-│   │       ├── flashcards.py    # Flashcard generation, CRUD, and SM-2 review
-│   │       ├── quizzes.py       # Question generation, single-question flow, score reporting
-│   │       └── flags.py         # Student feedback / reporting for bad cards or questions
-│   ├── tests/
-│   │   ├── test_services.py     # Parser & segmenter unit tests
-│   │   └── test_api.py          # API route integration tests
-│   ├── requirements.txt         # Backend Python dependencies
-│   ├── pytest.ini               # Test configuration
-│   ├── .env.example             # Template for environment variables
-│   └── .env                     # Local environment variables
+│   │   │   └── models.py        # ORM models (User, UserSession, Document, Topic, Flashcard, Question, etc.)
+│   │   ├── schemas/             # Pydantic v2 validation models (auth, study modules, consent)
+│   │   ├── security/            # Argon2id passwords, JWTs, web/native sessions, progressive back-off
+│   │   ├── services/            # PDF/DOCX parser, topic segmenter, consent gate, Gemini + offline AI engine
+│   │   └── routers/             # Auth (web + native), consent, admin, documents, summaries, flashcards, quizzes, chat, exam
+│   ├── migrations/              # Alembic schema migrations (0001 through 0007_session_client_type)
+│   ├── scripts/
+│   │   ├── admin_cli.py         # CLI for creating/managing admin accounts & audit log
+│   │   ├── release_tool.py      # Offline Ed25519 manifest keygen, signing, and verification CLI
+│   │   └── e2e_check.py         # End-to-end live deployment verification script
+│   ├── tests/                   # Pytest unit, security, migration, and integration test suite
+│   └── requirements.txt         # Backend Python dependencies
 │
 ├── frontend/
+│   ├── android/                 # Capacitor 8 Android native project (com.kabisado.app)
+│   │   └── app/src/main/java/com/kabisado/app/
+│   │       ├── MainActivity.java
+│   │       ├── KabisadoKeystorePlugin.java   # Hardware-backed AndroidKeyStore AES-256-GCM token storage
+│   │       ├── KabisadoSpeechPlugin.java     # Native Android TextToSpeech bridge
+│   │       └── KabisadoUpdaterPlugin.java    # APK SHA-256 + signing-certificate check & PackageInstaller handoff
 │   ├── src/
-│   │   ├── assets/              # Logos and SVG assets
-│   │   ├── components/
-│   │   │   ├── Navbar.jsx       # Brand header, view navigation, engine status modal
-│   │   │   ├── Mascot.jsx       # Kabi the sleepy owl SVG with reactive mood states
-│   │   │   ├── Toast.jsx        # Taglish notification system
-│   │   │   └── FlagModal.jsx    # Modal for flagging problematic cards or questions
-│   │   ├── views/
-│   │   │   ├── UploadLibraryView.jsx   # Drag-and-drop upload, text paste & module cards
-│   │   │   ├── DocumentView.jsx        # Summary switcher, interactive key terms & topics
-│   │   │   ├── FlashcardStudyMode.jsx  # 3D card flip animation, SM-2 ratings & CRUD
-│   │   │   └── QuizMode.jsx            # One-by-one questions, instant feedback & report
-│   │   ├── services/
-│   │   │   └── api.js           # Fetch API client
+│   │   ├── components/          # Navbar, Mascot, AccountModal, ConsentPanel, UpdateModal, Toast, FlagModal
+│   │   ├── platform/            # Web/Capacitor runtime detection, storage/speech/network adapters, Ed25519 APK updater
+│   │   ├── services/            # Dual-transport authClient.js (web cookie + native Keystore) & API client
+│   │   ├── views/               # UploadLibraryView, DocumentView, FlashcardStudyMode, QuizMode, ExamPrepView, ChatView, ProgressView, AdminView
 │   │   ├── App.jsx              # Main React container and routing
-│   │   ├── main.jsx             # React entry point
-│   │   └── index.css            # Tailwind CSS and 3D card utilities
+│   │   └── index.css            # Warm Daylight Academic Palette (Tailwind v4) & safe-area utilities
+│   ├── capacitor.config.json    # Capacitor configuration for com.kabisado.app
 │   ├── package.json
-│   └── vite.config.js           # Vite config with Tailwind & proxy to backend
+│   └── vite.config.js           # Vite config with web and native (--mode native CSP injection) builds
 │
+├── wake/                        # Public landing page & signed APK manifest hosted on GitHub Pages
+│   ├── index.html               # Product landing page, feature tour, Render wake-up modal & Android APK section
+│   ├── landing.js               # Wake-up state machine & Ed25519-verified APK metadata loader
+│   ├── privacy.html             # Public student privacy & data policy
+│   └── release/
+│       └── latest.json          # Android release manifest (paired with detached latest.json.sig on release)
+│
+├── docs/                        # Architecture, operations, deployment, and security review documentation
 └── README.md
 ```
 
 ---
 
-## 🗄️ Database Schema (SQLite / SQLAlchemy)
+## 🗄️ Database Schema (PostgreSQL / SQLite via SQLAlchemy)
 
 | Table | Description | Key Fields |
 |---|---|---|
-| `users` | Account (no email or phone) | `id`, `public_id`, `username`, `display_name`, `password_hash` (Argon2id), `recovery_hash`, `role` (`student`/`admin`), `is_active`, `last_login_at`, `subject_ref`, `created_at` |
-| `sessions` | Refresh-token sessions (only a SHA-256 of the token is stored) | `id`, `user_id`, `family_id`, `refresh_hash`, `created_at`, `expires_at`, `revoked_at`, `rotated_at` |
-| `login_attempts` | Login/recovery throttling | `key` (hash of username + IP), `count`, `window_start`, `locked_until` |
+| `users` | Student (`@gmail.com`) or CLI-created admin account | `id`, `public_id`, `username`, `display_name`, `password_hash` (Argon2id), `recovery_hash`, `role` (`student`/`admin`), `is_active`, `last_login_at`, `subject_ref`, `age_band`, `gemini_consent`, `consent_policy_version`, `created_at` |
+| `password_reset_codes` | 6-digit Gmail SMTP password reset codes (stored as HMAC-SHA256 hash) | `id`, `user_id`, `code_hash`, `created_at`, `expires_at`, `used_at`, `attempts` |
+| `sessions` | Refresh-token sessions (only a SHA-256 of the token is stored, isolated by `client_type`) | `id`, `user_id`, `family_id`, `refresh_hash`, `client_type` (`web`/`native`), `created_at`, `expires_at`, `revoked_at`, `rotated_at` |
+| `login_attempts` | Login/recovery/reset throttling | `key` (hash of username + IP), `count`, `window_start`, `locked_until` |
 | `documents` | Uploaded modules / handouts | `id`, `user_id`, `title`, `file_type`, `file_path`, `raw_text`, `summary_brief`, `summary_standard`, `summary_detailed`, `key_terms`, `created_at` |
 | `topics` | Topic sections of a document | `id`, `document_id`, `title`, `content`, `order_index`, `summary`, `created_at` |
 | `flashcards` | Memory cards | `id`, `document_id`, `topic_id`, `front`, `back`, `card_type`, `ease_factor`, `interval`, `repetitions`, `next_review`, `created_at` |
-| `questions` | Multiple-choice questions | `id`, `document_id`, `topic_id`, `question_text`, `choices` (JSON array of 4), `correct_index`, `explanation`, `difficulty`, `created_at` |
+| `questions` | Quiz questions (multiple choice, true/false, identification, matching) | `id`, `document_id`, `topic_id`, `question_text`, `choices`, `correct_index`, `explanation`, `difficulty`, `question_type`, `style`, `answer_data`, `created_at` |
 | `quiz_attempts` | Quiz submission record | `id`, `user_id`, `document_id`, `topic_id`, `score`, `total_questions`, `difficulty`, `completed_at` |
-| `question_attempts`| Per-question answer history | `id`, `attempt_id`, `question_id`, `selected_index`, `is_correct`, `answered_at` |
-| `flags` | Student reports on bad cards/questions | `id`, `target_type` (flashcard/question), `target_id`, `reason`, `notes`, `created_at` |
+| `question_attempts`| Per-question answer history | `id`, `attempt_id`, `question_id`, `selected_index`, `response`, `is_correct`, `answered_at` |
+| `flags` | Student reports on bad cards/questions | `id`, `target_type` (flashcard/question), `target_id`, `user_id`, `reason`, `notes`, `created_at` |
 | `review_logs` | One row per flashcard review (feeds the study streak) | `id`, `flashcard_id`, `rating`, `reviewed_at` |
+| `audit_log` | Append-only admin action audit trail | `id`, `actor_id`, `actor_username`, `action`, `target_ref`, `created_at` |
+| `consent_log` | Per-student hash-chained Gemini consent history | `id`, `user_id`, `event`, `policy_version`, `prev_hash`, `row_hash`, `created_at` |
+| `ai_usage` | Gemini request counter (never stores prompts or answers) | `id`, `user_id`, `feature`, `engine`, `created_at` |
+| `system_status` | Operational heartbeats and site-wide switches | `key`, `value`, `updated_at` |
 
 ---
 
 ## 🔐 Accounts, Hosting & Operations
 
-- **Accounts:** username + password (Argon2id) with a one-time recovery code. No email, phone or Gmail. Roles are `student` and `admin`, enforced on the server on every request. Admins are created only from the command line (`python -m app.cli create-admin`), never through the website.
-- **Sessions:** a 15-minute access token kept in memory, plus a 7-day rotating refresh token in an HttpOnly, Secure, SameSite=Strict cookie.
-- **Hosting (₱0):** one Render Free web service runs the API **and** serves the built React app (same origin, so the cookie is first-party). The database is Supabase Free Postgres. GitHub Pages only hosts a small wake-up page for the sleeping free instance.
-- **Local development:** the Vite dev server proxies `/api` to the backend, and with `AUTO_CREATE_SCHEMA=true` and `COOKIE_SECURE=false` in `backend/.env` the backend creates its tables itself. Production uses Alembic migrations.
-- **Runbook:** deploy order, secrets, creating the admin, rotating the signing key, retention and known limits are in [`docs/operations.md`](docs/operations.md).
+- **Accounts:** Students register with their `@gmail.com` address + password (Argon2id) and can reset a forgotten password via a 6-digit Gmail SMTP reset code (`POST /api/auth/forgot-password`, `POST /api/auth/reset-password`). Roles are `student` and `admin`, enforced on the server on every request. Admins are created only from the command line (`python -m app.cli create-admin`) with a one-time recovery code, never through the website.
+- **Sessions (Unified Web & Android):**
+  - **Web browsers:** 15-minute access token kept in memory, plus a 7-day rotating refresh token in an `HttpOnly`, `Secure`, `SameSite=Strict`, `__Host-kabisado_rt` cookie (`client_type='web'`).
+  - **Android app (`com.kabisado.app`, Capacitor 8):** 15-minute access token kept in memory, plus a 7-day rotating refresh token stored in hardware-backed **Android Keystore** (`AES/GCM/NoPadding`, `client_type='native'`) via `/api/auth/native/*`. Both platforms share the same backend, Supabase Postgres database, modules, flashcards, quizzes, and study progress.
+- **Public Landing Page & Signed APK Updates:**
+  - Hosted on **GitHub Pages** (`wake/index.html`, `wake/privacy.html`, `wake/release/latest.json`, and `wake/release/latest.json.sig`).
+  - Signed release APKs are hosted on **GitHub Releases**. The Android app verifies the detached Ed25519 signature (`latest.json.sig`), checks the downloaded APK's SHA-256 checksum, package name (`com.kabisado.app`), higher `versionCode`, and signing certificate match against the installed app, and hands off installation to Android's system package installer.
+- **Hosting (₱0):** one Render Free web service runs the API **and** serves the built React web app (same origin, so the web cookie is first-party). The database is Supabase Free Postgres. In Render, set `ALLOWED_ORIGINS` to the explicit comma-separated Render and GitHub Pages `https://` origins (replace the placeholder in `render.yaml`).
+- **Local development:** the Vite dev server proxies `/api` to the backend, and with `AUTO_CREATE_SCHEMA=true` and `COOKIE_SECURE=false` in `backend/.env` the backend creates its tables itself. Production uses Alembic migrations (`0001` through `0007`).
+- **Runbook:** deploy order, secrets, creating the admin, rotating the signing key, local APK signing, Ed25519 release metadata signing, migration rollback, retention and known limits are in [`docs/operations.md`](docs/operations.md).
 
 ---
 

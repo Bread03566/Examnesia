@@ -133,3 +133,22 @@ def test_revoke_all_for_user(db, user):
     for t in (t1, t2):
         with pytest.raises(sessions.SessionError):
             sessions.rotate_session(db, t)
+
+
+def test_web_and_native_sessions_cannot_cross_flows(db, user):
+    web_token, web_row = sessions.issue_session(db, user.id, "web-ua", client_type="web")
+    native_token, native_row = sessions.issue_session(db, user.id, "native-ua", client_type="native")
+    assert web_row.client_type == "web" and native_row.client_type == "native"
+
+    with pytest.raises(sessions.SessionError, match="client type mismatch"):
+        sessions.rotate_session(db, web_token, expected_client_type="native")
+    with pytest.raises(sessions.SessionError, match="client type mismatch"):
+        sessions.rotate_session(db, native_token, expected_client_type="web")
+
+    # Cross-type logout is a no-op; tokens remain valid in their own flow
+    sessions.revoke_session(db, web_token, expected_client_type="native")
+    sessions.revoke_session(db, native_token, expected_client_type="web")
+
+    _, next_web = sessions.rotate_session(db, web_token, expected_client_type="web")
+    _, next_native = sessions.rotate_session(db, native_token, expected_client_type="native")
+    assert next_web.client_type == "web" and next_native.client_type == "native"

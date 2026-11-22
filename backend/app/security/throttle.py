@@ -17,6 +17,10 @@ from app.models.models import LoginAttempt
 WINDOW = datetime.timedelta(minutes=15)
 FREE_FAILURES = 4
 MAX_DELAY_SECONDS = 900
+# Secondary account-wide progressive backoff across all IPs (higher threshold + short cap so a single-IP
+# brute-force never locks out the real owner on another IP, while distributed IP rotation is still slowed).
+ACCOUNT_FREE_FAILURES = 12
+ACCOUNT_MAX_DELAY_SECONDS = 30
 
 
 def make_key(username: str, ip: str) -> str:
@@ -27,10 +31,9 @@ def _now() -> datetime.datetime:
     return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
 
-def check_allowed(db: Session, username: str, ip: str) -> None:
-    row = db.get(LoginAttempt, make_key(username, ip))
-    if row and row.locked_until and row.locked_until > _now():
-        wait = max(1, math.ceil((row.locked_until - _now()).total_seconds()))
+def _check_row(row: LoginAttempt | None, now: datetime.datetime) -> None:
+    if row and row.locked_until and row.locked_until > now:
+        wait = max(1, math.ceil((row.locked_until - now).total_seconds()))
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many attempts. Please wait a moment and try again.",
@@ -38,8 +41,13 @@ def check_allowed(db: Session, username: str, ip: str) -> None:
         )
 
 
-def record_failure(db: Session, username: str, ip: str) -> None:
-    key, now = make_key(username, ip), _now()
+def check_allowed(db: Session, username: str, ip: str) -> None:
+    now = _now()
+    _check_row(db.get(LoginAttempt, make_key(username, ip)), now)
+    _check_row(db.get(LoginAttempt, make_key(username, "*")), now)
+
+
+def _bump_row(db: Session, key: str, now: datetime.datetime, free_failures: int, max_delay: int) -> None:
     row = db.get(LoginAttempt, key)
     if row is None:
         row = LoginAttempt(key=key, count=0, window_start=now)
@@ -47,9 +55,15 @@ def record_failure(db: Session, username: str, ip: str) -> None:
     elif now - row.window_start > WINDOW:
         row.count, row.window_start, row.locked_until = 0, now, None
     row.count += 1
-    if row.count > FREE_FAILURES:
-        delay = min(2 ** (row.count - FREE_FAILURES), MAX_DELAY_SECONDS)
+    if row.count > free_failures:
+        delay = min(2 ** (row.count - free_failures), max_delay)
         row.locked_until = now + datetime.timedelta(seconds=delay)
+
+
+def record_failure(db: Session, username: str, ip: str) -> None:
+    now = _now()
+    _bump_row(db, make_key(username, ip), now, FREE_FAILURES, MAX_DELAY_SECONDS)
+    _bump_row(db, make_key(username, "*"), now, ACCOUNT_FREE_FAILURES, ACCOUNT_MAX_DELAY_SECONDS)
     try:
         db.commit()
     except IntegrityError:  # two first failures raced to create the row; the other one counts
@@ -57,9 +71,10 @@ def record_failure(db: Session, username: str, ip: str) -> None:
 
 
 def record_success(db: Session, username: str, ip: str) -> None:
-    row = db.get(LoginAttempt, make_key(username, ip))
-    if row is not None:
-        db.delete(row)
+    for key in (make_key(username, ip), make_key(username, "*")):
+        row = db.get(LoginAttempt, key)
+        if row is not None:
+            db.delete(row)
     db.commit()
 
 

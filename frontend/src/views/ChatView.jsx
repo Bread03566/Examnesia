@@ -15,6 +15,7 @@ import {
 import Mascot from '../components/Mascot';
 import Markdown from '../components/Markdown';
 import { askDocumentChat } from '../services/api';
+import { speech } from '../platform/index';
 
 // Keep per-document conversation history in memory during the session so switching tabs doesn't wipe it.
 const sessionChats = new Map();
@@ -77,9 +78,7 @@ export default function ChatView({
       } catch {
         /* ignore */
       }
-      if (typeof window !== 'undefined' && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-      }
+      speech.cancelSpeech();
     };
   }, []);
 
@@ -178,27 +177,25 @@ export default function ChatView({
   };
 
   const speakText = (text, idx) => {
-    if (!window.speechSynthesis) {
-      showToast?.('error', 'Text-to-speech is not supported in this browser.');
+    if (!speech.isTtsSupported()) {
+      showToast?.('error', 'Text-to-speech is not supported on this device.');
       return;
     }
 
     if (speakingIdx === idx) {
-      window.speechSynthesis.cancel();
+      speech.cancelSpeech();
       setSpeakingIdx(null);
       return;
     }
 
-    window.speechSynthesis.cancel();
     const cleanText = text.replace(/[#*`>_]/g, '').trim();
-    const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    utterance.onend = () => setSpeakingIdx(null);
-    utterance.onerror = () => setSpeakingIdx(null);
-
     setSpeakingIdx(idx);
-    window.speechSynthesis.speak(utterance);
+    speech.speakText(cleanText, {
+      rate: 1.0,
+      pitch: 1.0,
+      onEnd: () => setSpeakingIdx(null),
+      onError: () => setSpeakingIdx(null),
+    });
   };
 
   return (
@@ -368,19 +365,21 @@ export default function ChatView({
           }}
           className="flex items-center gap-2 bg-white p-1.5 rounded-2xl border border-slate-300 shadow-xs focus-within:ring-2 focus-within:ring-amber-500/20 focus-within:border-amber-500"
         >
-          <button
-            type="button"
-            onClick={handleToggleVoiceInput}
-            aria-label={isListening ? 'Stop voice input' : 'Start voice input'}
-            title={isListening ? 'Stop listening' : 'Speak your question'}
-            className={`min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-xl transition ${
-              isListening
-                ? 'bg-rose-600 text-white animate-pulse'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-          </button>
+          {speech.isRecognitionSupported() && (
+            <button
+              type="button"
+              onClick={handleToggleVoiceInput}
+              aria-label={isListening ? 'Stop voice input' : 'Start voice input'}
+              title={isListening ? 'Stop listening' : 'Speak your question'}
+              className={`min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-xl transition ${
+                isListening
+                  ? 'bg-rose-600 text-white animate-pulse'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+            </button>
+          )}
 
           <input
             type="text"

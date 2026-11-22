@@ -19,6 +19,9 @@ from app.schemas.auth import (
     ChangePasswordRequest,
     ForgotPasswordRequest,
     LoginRequest,
+    NativeRecoveryTokenResponse,
+    NativeRefreshRequest,
+    NativeTokenResponse,
     PasswordConfirmRequest,
     RecoverRequest,
     RecoveryTokenResponse,
@@ -94,26 +97,17 @@ def _naive_now() -> datetime.datetime:
 
 
 def _start_session(db: Session, user: User, request: Request, response: Response) -> str:
-    refresh_token, session = issue_session(db, user.id, user_agent(request))
+    refresh_token, session = issue_session(db, user.id, user_agent(request), client_type="web")
     set_refresh_cookie(response, refresh_token)
     return create_access_token(user.id, session.id)
 
 
-def _hash_reset_code(user_id: int, code: str, secret: str | None = None) -> str:
-    key = (secret or settings.JWT_SECRET).encode("utf-8")
-    return hmac.new(key, f"{user_id}:{code}".encode("utf-8"), hashlib.sha256).hexdigest()
+def _start_native_session(db: Session, user: User, request: Request) -> tuple[str, str]:
+    refresh_token, session = issue_session(db, user.id, user_agent(request), client_type="native")
+    return create_access_token(user.id, session.id), refresh_token
 
 
-def _verify_reset_code(user_id: int, code: str, stored_hash: str) -> bool:
-    if hmac.compare_digest(stored_hash, _hash_reset_code(user_id, code, settings.JWT_SECRET)):
-        return True
-    if settings.JWT_SECRET_PREVIOUS:
-        return hmac.compare_digest(stored_hash, _hash_reset_code(user_id, code, settings.JWT_SECRET_PREVIOUS))
-    return False
-
-
-@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-def register(payload: RegisterRequest, request: Request, response: Response, db: Session = Depends(get_db)):
+def _register_user(payload: RegisterRequest, request: Request, db: Session) -> User:
     try:
         validate_password(payload.password, payload.email)
     except ValueError as err:
@@ -135,12 +129,10 @@ def register(payload: RegisterRequest, request: Request, response: Response, db:
     except IntegrityError:  # lost a race for the same Gmail
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, "That Gmail address is already registered.")
-    access = _start_session(db, user, request, response)
-    return TokenResponse(access_token=access, user=UserOut.model_validate(user))
+    return user
 
 
-@router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
+def _authenticate_login(payload: LoginRequest, request: Request, db: Session) -> User:
     ip = client_ip(request)
     throttle.check_allowed(db, payload.email, ip)
     user = db.query(User).filter(User.username == payload.email).first()
@@ -154,6 +146,102 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
         user.password_hash = hash_password_sync(payload.password)
     user.last_login_at = _naive_now()
     throttle.record_success(db, payload.email, ip)  # also commits the changes above
+    return user
+
+
+def _apply_password_reset(payload: ResetPasswordRequest, request: Request, db: Session) -> User:
+    ip = client_ip(request)
+    throttle_key = "reset:" + payload.email
+    throttle.check_allowed(db, throttle_key, ip)
+    try:
+        validate_password(payload.new_password, payload.email)
+    except ValueError as err:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(err))
+
+    user = db.query(User).filter(User.username == payload.email).first()
+    now = _naive_now()
+    row = None
+    if user:
+        row = (
+            db.query(PasswordResetCode)
+            .filter(
+                PasswordResetCode.user_id == user.id,
+                PasswordResetCode.used_at.is_(None),
+                PasswordResetCode.expires_at > now,
+                PasswordResetCode.attempts < RESET_MAX_ATTEMPTS,
+            )
+            .order_by(PasswordResetCode.id.desc())
+            .first()
+        )
+
+    ok = bool(user and row and _verify_reset_code(user.id, payload.code, row.code_hash))
+    if not ok:
+        if row is not None:
+            row.attempts += 1
+            if row.attempts >= RESET_MAX_ATTEMPTS:
+                row.used_at = now
+            db.commit()
+        throttle.record_failure(db, throttle_key, ip)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, BAD_RESET)
+
+    if not user.is_active:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This account has been deactivated.")
+
+    row.used_at = now
+    user.password_hash = hash_password_sync(payload.new_password)
+    db.commit()
+    revoke_all_for_user(db, user.id)
+    throttle.record_success(db, throttle_key, ip)
+    return user
+
+
+def _apply_recovery_code(payload: RecoverRequest, request: Request, db: Session) -> tuple[User, str]:
+    ip, throttle_name = client_ip(request), "recover:" + payload.username
+    throttle.check_allowed(db, throttle_name, ip)
+    try:
+        validate_password(payload.new_password, payload.username)
+    except ValueError as err:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(err))
+    user = db.query(User).filter(User.username == payload.username).first()
+    ok = verify_recovery_code_sync(user.recovery_hash if user else None, payload.recovery_code)
+    if not (user and ok):
+        throttle.record_failure(db, throttle_name, ip)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, BAD_RECOVERY)
+    if not user.is_active:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This account has been deactivated.")
+
+    new_code = generate_recovery_code()
+    user.password_hash = hash_password_sync(payload.new_password)
+    user.recovery_hash = hash_recovery_code_sync(new_code)
+    db.commit()
+    revoke_all_for_user(db, user.id)
+    throttle.record_success(db, throttle_name, ip)
+    return user, new_code
+
+
+def _hash_reset_code(user_id: int, code: str, secret: str | None = None) -> str:
+    key = (secret or settings.JWT_SECRET).encode("utf-8")
+    return hmac.new(key, f"{user_id}:{code}".encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _verify_reset_code(user_id: int, code: str, stored_hash: str) -> bool:
+    if hmac.compare_digest(stored_hash, _hash_reset_code(user_id, code, settings.JWT_SECRET)):
+        return True
+    if settings.JWT_SECRET_PREVIOUS:
+        return hmac.compare_digest(stored_hash, _hash_reset_code(user_id, code, settings.JWT_SECRET_PREVIOUS))
+    return False
+
+
+@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+def register(payload: RegisterRequest, request: Request, response: Response, db: Session = Depends(get_db)):
+    user = _register_user(payload, request, db)
+    access = _start_session(db, user, request, response)
+    return TokenResponse(access_token=access, user=UserOut.model_validate(user))
+
+
+@router.post("/login", response_model=TokenResponse)
+def login(payload: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
+    user = _authenticate_login(payload, request, db)
     access = _start_session(db, user, request, response)
     return TokenResponse(access_token=access, user=UserOut.model_validate(user))
 
@@ -212,48 +300,7 @@ def forgot_password(payload: ForgotPasswordRequest, request: Request, db: Sessio
 
 @router.post("/reset-password", response_model=TokenResponse)
 def reset_password(payload: ResetPasswordRequest, request: Request, response: Response, db: Session = Depends(get_db)):
-    ip = client_ip(request)
-    throttle_key = "reset:" + payload.email
-    throttle.check_allowed(db, throttle_key, ip)
-    try:
-        validate_password(payload.new_password, payload.email)
-    except ValueError as err:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(err))
-
-    user = db.query(User).filter(User.username == payload.email).first()
-    now = _naive_now()
-    row = None
-    if user:
-        row = (
-            db.query(PasswordResetCode)
-            .filter(
-                PasswordResetCode.user_id == user.id,
-                PasswordResetCode.used_at.is_(None),
-                PasswordResetCode.expires_at > now,
-                PasswordResetCode.attempts < RESET_MAX_ATTEMPTS,
-            )
-            .order_by(PasswordResetCode.id.desc())
-            .first()
-        )
-
-    ok = bool(user and row and _verify_reset_code(user.id, payload.code, row.code_hash))
-    if not ok:
-        if row is not None:
-            row.attempts += 1
-            if row.attempts >= RESET_MAX_ATTEMPTS:
-                row.used_at = now
-            db.commit()
-        throttle.record_failure(db, throttle_key, ip)
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, BAD_RESET)
-
-    if not user.is_active:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "This account has been deactivated.")
-
-    row.used_at = now
-    user.password_hash = hash_password_sync(payload.new_password)
-    db.commit()
-    revoke_all_for_user(db, user.id)
-    throttle.record_success(db, throttle_key, ip)
+    user = _apply_password_reset(payload, request, db)
     access = _start_session(db, user, request, response)
     return TokenResponse(access_token=access, user=UserOut.model_validate(user))
 
@@ -265,7 +312,7 @@ def refresh(request: Request, response: Response, db: Session = Depends(get_db),
     if not token:
         return _unauthorized("Please sign in.")
     try:
-        new_token, session = rotate_session(db, token, user_agent(request))
+        new_token, session = rotate_session(db, token, user_agent(request), expected_client_type="web")
     except SessionError:
         return _unauthorized("Your session has expired. Please sign in again.", clear_cookie=True)
     user = db.get(User, session.user_id)
@@ -280,7 +327,7 @@ def refresh(request: Request, response: Response, db: Session = Depends(get_db),
 def logout(request: Request, db: Session = Depends(get_db), _: None = Depends(require_cookie_csrf)):
     token = request.cookies.get(settings.refresh_cookie_name)
     if token:
-        revoke_session(db, token)
+        revoke_session(db, token, expected_client_type="web")
     resp = Response(status_code=status.HTTP_204_NO_CONTENT)
     clear_refresh_cookie(resp)
     return resp
@@ -289,28 +336,69 @@ def logout(request: Request, db: Session = Depends(get_db), _: None = Depends(re
 @router.post("/recover", response_model=RecoveryTokenResponse)
 def recover(payload: RecoverRequest, request: Request, response: Response, db: Session = Depends(get_db)):
     """Recovery-code fallback (used for CLI-created admin accounts)."""
-    ip, throttle_name = client_ip(request), "recover:" + payload.username
-    throttle.check_allowed(db, throttle_name, ip)
-    try:
-        validate_password(payload.new_password, payload.username)
-    except ValueError as err:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(err))
-    user = db.query(User).filter(User.username == payload.username).first()
-    ok = verify_recovery_code_sync(user.recovery_hash if user else None, payload.recovery_code)
-    if not (user and ok):
-        throttle.record_failure(db, throttle_name, ip)
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, BAD_RECOVERY)
-    if not user.is_active:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "This account has been deactivated.")
-
-    new_code = generate_recovery_code()
-    user.password_hash = hash_password_sync(payload.new_password)
-    user.recovery_hash = hash_recovery_code_sync(new_code)
-    db.commit()
-    revoke_all_for_user(db, user.id)
-    throttle.record_success(db, throttle_name, ip)
+    user, new_code = _apply_recovery_code(payload, request, db)
     access = _start_session(db, user, request, response)
     return RecoveryTokenResponse(access_token=access, user=UserOut.model_validate(user), recovery_code=new_code)
+
+
+# ==================== Native (Android Capacitor) Auth ====================
+# Shares all validation, Argon2id, throttling, and rotating session logic with the web routes,
+# but transports the refresh token in the HTTPS JSON body (no Set-Cookie) with client_type="native".
+
+
+@router.post("/native/register", response_model=NativeTokenResponse, status_code=status.HTTP_201_CREATED)
+def native_register(payload: RegisterRequest, request: Request, db: Session = Depends(get_db)):
+    user = _register_user(payload, request, db)
+    access, refresh_token = _start_native_session(db, user, request)
+    return NativeTokenResponse(access_token=access, refresh_token=refresh_token, user=UserOut.model_validate(user))
+
+
+@router.post("/native/login", response_model=NativeTokenResponse)
+def native_login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    user = _authenticate_login(payload, request, db)
+    access, refresh_token = _start_native_session(db, user, request)
+    return NativeTokenResponse(access_token=access, refresh_token=refresh_token, user=UserOut.model_validate(user))
+
+
+@router.post("/native/reset-password", response_model=NativeTokenResponse)
+def native_reset_password(payload: ResetPasswordRequest, request: Request, db: Session = Depends(get_db)):
+    user = _apply_password_reset(payload, request, db)
+    access, refresh_token = _start_native_session(db, user, request)
+    return NativeTokenResponse(access_token=access, refresh_token=refresh_token, user=UserOut.model_validate(user))
+
+
+@router.post("/native/recover", response_model=NativeRecoveryTokenResponse)
+def native_recover(payload: RecoverRequest, request: Request, db: Session = Depends(get_db)):
+    user, new_code = _apply_recovery_code(payload, request, db)
+    access, refresh_token = _start_native_session(db, user, request)
+    return NativeRecoveryTokenResponse(
+        access_token=access, refresh_token=refresh_token, user=UserOut.model_validate(user), recovery_code=new_code
+    )
+
+
+@router.post("/native/refresh", response_model=NativeTokenResponse)
+def native_refresh(payload: NativeRefreshRequest, request: Request, db: Session = Depends(get_db)):
+    try:
+        new_token, session = rotate_session(
+            db, payload.refresh_token, user_agent(request), expected_client_type="native"
+        )
+    except SessionError:
+        return _unauthorized("Your session has expired. Please sign in again.", clear_cookie=False)
+    user = db.get(User, session.user_id)
+    if user is None or not user.is_active:
+        revoke_all_for_user(db, session.user_id)
+        return _unauthorized("Please sign in.", clear_cookie=False)
+    return NativeTokenResponse(
+        access_token=create_access_token(user.id, session.id),
+        refresh_token=new_token,
+        user=UserOut.model_validate(user),
+    )
+
+
+@router.post("/native/logout", status_code=status.HTTP_204_NO_CONTENT)
+def native_logout(payload: NativeRefreshRequest, db: Session = Depends(get_db)):
+    revoke_session(db, payload.refresh_token, expected_client_type="native")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/me", response_model=UserOut)

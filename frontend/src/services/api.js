@@ -1,5 +1,6 @@
 // Kabisado API Client
 import { authFetch } from "./authClient";
+import { saveJsonDownload } from "../platform/index";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/+$/, "");
 
@@ -324,12 +325,7 @@ export const withdrawGeminiConsent = () => consentCall("DELETE", "/gemini");
 export async function exportMyData() {
   const res = await authFetch(`${API_BASE}/api/auth/export`);
   if (!res.ok) throw new Error("Could not download your data. Please try again.");
-  const url = URL.createObjectURL(await res.blob());
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "kabisado-my-data.json";
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  await saveJsonDownload(await res.blob(), "kabisado-my-data.json");
 }
 
 // ==================== Admin (the server enforces the role; the UI only hides the tab) ====================

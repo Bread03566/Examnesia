@@ -153,6 +153,65 @@ def test_gate_is_closed_when_the_global_switch_is_off(client, gemini_on, monkeyp
     assert consent.authorize(uid) is False
 
 
+def test_admin_enabling_gemini_never_bypasses_individual_student_consent(client, monkeypatch):
+    from app.models.models import SystemStatus
+    from app.services import system_status
+
+    monkeypatch.setattr(settings, "GEMINI_ENABLED", False)
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "real-looking-key")
+
+    with SessionLocal() as db:
+        adm_name = unique_username("adm")
+        cli.create_admin(db, adm_name, "Admin", STRONG_PASSWORD)
+    admin_token = client.post("/api/auth/login", json={"email": adm_name, "password": STRONG_PASSWORD}).json()["access_token"]
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+    try:
+        # Admin turns Gemini AI on site-wide via the admin master switch
+        res = client.post("/api/admin/system/gemini", headers=admin_headers, json={"enabled": True})
+        assert res.status_code == 200 and res.json()["enabled"] is True
+
+        student_headers, _, _ = register_user(client)
+        uid = uid_of(client, student_headers)
+
+        # Feature is now available to opt into, but student has NOT consented yet
+        status_body = client.get("/api/consent", headers=student_headers).json()
+        assert status_body["gemini_available"] is True and status_body["consent"] is False
+        assert consent.authorize(uid) is False
+        assert consent.reserve_gemini_call(uid, "summary") is False
+
+        fake = FakeGemini()
+        out = asyncio.run(service(fake).generate_summary("Bio", TEXT, "brief", user_id=uid))
+        assert fake.calls == 0 and out["summary"]
+
+        # Once the student independently confirms 18+ and grants consent, Gemini is authorized
+        assert client.post("/api/consent/gemini", headers=student_headers, json=GRANT).status_code == 200
+        assert consent.authorize(uid) is True
+
+        # Missing age confirmation or stale policy version still blocks even with admin switch on
+        with SessionLocal() as db:
+            db.query(User).filter_by(id=uid).update({"age_band": None})
+            db.commit()
+        assert consent.authorize(uid) is False
+        assert client.get("/api/consent", headers=student_headers).json()["consent"] is False
+
+        with SessionLocal() as db:
+            db.query(User).filter_by(id=uid).update({"age_band": "adult"})
+            db.commit()
+        assert consent.authorize(uid) is True
+
+        # Admin turning Gemini OFF overrides GEMINI_ENABLED=True and immediately blocks consenting students
+        monkeypatch.setattr(settings, "GEMINI_ENABLED", True)
+        off_res = client.post("/api/admin/system/gemini", headers=admin_headers, json={"enabled": False})
+        assert off_res.status_code == 200 and off_res.json()["enabled"] is False
+        assert consent.authorize(uid) is False
+        assert client.get("/api/consent", headers=student_headers).json()["gemini_available"] is False
+    finally:
+        with SessionLocal() as db:
+            db.query(SystemStatus).filter_by(key=system_status.GEMINI_STATUS_KEY).delete()
+            db.commit()
+
+
 def test_daily_budget_is_enforced_per_student_and_globally(client, gemini_on, monkeypatch):
     a, _, _ = register_user(client)
     b, _, _ = register_user(client)

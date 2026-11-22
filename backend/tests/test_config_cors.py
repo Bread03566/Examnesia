@@ -28,6 +28,41 @@ def test_cors_allows_listed_origin():
     assert res.headers.get("access-control-allow-origin") == ALLOWED
 
 
+def test_cors_allows_native_origin_and_client_header():
+    with TestClient(app) as c:
+        res = c.options(
+            "/api/health",
+            headers={
+                "Origin": "https://localhost",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "authorization,x-kabisado-client",
+            },
+        )
+    assert res.headers.get("access-control-allow-origin") == "https://localhost"
+    assert "x-kabisado-client" in (res.headers.get("access-control-allow-headers") or "").lower()
+
+
+def test_native_version_gate_returns_426_for_outdated_android_client(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "MIN_NATIVE_VERSION_CODE", 10000)
+    with TestClient(app) as c:
+        outdated = c.post(
+            "/api/auth/native/login",
+            headers={"Origin": "https://localhost", "X-Kabisado-Client": "android/9999"},
+            json={},
+        )
+        assert outdated.status_code == 426
+        assert outdated.headers.get("access-control-allow-origin") == "https://localhost"
+        assert outdated.json()["code"] == "UPGRADE_REQUIRED"
+        assert outdated.json()["min_version_code"] == 10000
+        # Health endpoint stays reachable even for outdated clients
+        assert c.get("/api/health", headers={"X-Kabisado-Client": "android/9999"}).status_code == 200
+        # Current or newer client proceeds to normal validation
+        current = c.post("/api/auth/native/login", headers={"X-Kabisado-Client": "android/10000"}, json={})
+        assert current.status_code == 422
+
+
 def test_credentials_not_allowed():
     res = preflight(ALLOWED)
     assert "access-control-allow-credentials" not in res.headers

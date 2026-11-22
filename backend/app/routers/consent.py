@@ -25,7 +25,11 @@ def _gemini_available() -> bool:
 
 @router.get("")
 def status_of_my_consent(user: User = Depends(get_current_user)):
-    consenting = bool(user.gemini_consent and user.consent_policy_version == consent.CURRENT_POLICY_VERSION)
+    consenting = bool(
+        user.age_band == "adult"
+        and user.gemini_consent
+        and user.consent_policy_version == consent.CURRENT_POLICY_VERSION
+    )
     return {
         "gemini_available": _gemini_available(),
         "consent": consenting,

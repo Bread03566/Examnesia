@@ -38,11 +38,22 @@ describe('Kabisado UI/UX & Safety Invariants', () => {
     }
   });
 
-  it('provides compact mobile bottom navigation with safe-area support', () => {
+  it('provides compact mobile bottom navigation and sticky header with top & bottom safe-area support', () => {
     const navbar = readFileSync(join(SRC_ROOT, 'components', 'Navbar.jsx'), 'utf8');
     expect(navbar).toMatch(/aria-label="Mobile navigation"/);
+    expect(navbar).toMatch(/safe-area-inset-top/);
     expect(navbar).toMatch(/safe-area-inset-bottom/);
     expect(navbar).toMatch(/aria-current=/);
+  });
+
+  it('preserves the Kabisado warm brown palette tokens (#E4E0E1, #D6C0B3, #AB886D, #493628) and responsive narrow-viewport grids', () => {
+    const css = readFileSync(join(SRC_ROOT, 'index.css'), 'utf8');
+    for (const hex of ['#E4E0E1', '#D6C0B3', '#AB886D', '#493628']) {
+      expect(css).toContain(hex);
+    }
+    const quiz = readFileSync(join(SRC_ROOT, 'views', 'QuizMode.jsx'), 'utf8');
+    expect(quiz).toContain('grid-cols-2 sm:grid-cols-4');
+    expect(quiz).toContain('grid-cols-1 sm:grid-cols-3');
   });
 
   it('docks Companion safely above mobile nav and supports hiding on mobile study views', () => {

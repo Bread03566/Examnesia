@@ -29,12 +29,20 @@ def _sha256(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
-def _new_session(db: Session, user_id: int, family_id: str, user_agent: str | None) -> tuple[str, UserSession]:
+VALID_CLIENT_TYPES = ("web", "native")
+
+
+def _new_session(
+    db: Session, user_id: int, family_id: str, user_agent: str | None, client_type: str = "web"
+) -> tuple[str, UserSession]:
+    if client_type not in VALID_CLIENT_TYPES:
+        raise ValueError(f"Invalid client_type: {client_type}")
     token = secrets.token_urlsafe(48)
     row = UserSession(
         user_id=user_id,
         family_id=family_id,
         refresh_hash=_sha256(token),
+        client_type=client_type,
         expires_at=_now() + datetime.timedelta(days=settings.REFRESH_TOKEN_DAYS),
         user_agent_hash=_sha256(user_agent) if user_agent else None,
     )
@@ -43,8 +51,10 @@ def _new_session(db: Session, user_id: int, family_id: str, user_agent: str | No
     return token, row
 
 
-def issue_session(db: Session, user_id: int, user_agent: str | None) -> tuple[str, UserSession]:
-    token, row = _new_session(db, user_id, str(uuid.uuid4()), user_agent)
+def issue_session(
+    db: Session, user_id: int, user_agent: str | None, client_type: str = "web"
+) -> tuple[str, UserSession]:
+    token, row = _new_session(db, user_id, str(uuid.uuid4()), user_agent, client_type=client_type)
     db.commit()
     return token, row
 
@@ -55,7 +65,9 @@ def _revoke_family(db: Session, family_id: str) -> None:
         s.revoked_at = now
 
 
-def rotate_session(db: Session, refresh_token: str, user_agent: str | None = None) -> tuple[str, UserSession]:
+def rotate_session(
+    db: Session, refresh_token: str, user_agent: str | None = None, expected_client_type: str = "web"
+) -> tuple[str, UserSession]:
     row = (
         db.query(UserSession)
         .filter(UserSession.refresh_hash == _sha256(refresh_token))
@@ -64,6 +76,9 @@ def rotate_session(db: Session, refresh_token: str, user_agent: str | None = Non
     )
     if row is None:
         raise SessionError("unknown refresh token")
+    if row.client_type != expected_client_type:
+        db.rollback()
+        raise SessionError("refresh token client type mismatch")
     now = _now()
     if row.revoked_at is not None or row.expires_at <= now:
         db.rollback()
@@ -73,7 +88,7 @@ def rotate_session(db: Session, refresh_token: str, user_agent: str | None = Non
         db.commit()
         raise SessionError("refresh token reuse detected; session revoked")
 
-    token, successor = _new_session(db, row.user_id, row.family_id, user_agent)
+    token, successor = _new_session(db, row.user_id, row.family_id, user_agent, client_type=row.client_type)
     if row.rotated_at is None:  # first use; a grace-window reuse leaves the original successor link alone
         row.rotated_at = now
         row.replaced_by = successor.id
@@ -81,10 +96,10 @@ def rotate_session(db: Session, refresh_token: str, user_agent: str | None = Non
     return token, successor
 
 
-def revoke_session(db: Session, refresh_token: str) -> None:
+def revoke_session(db: Session, refresh_token: str, expected_client_type: str | None = None) -> None:
     """Logout: revoke the token's whole family so no later generation survives."""
     row = db.query(UserSession).filter(UserSession.refresh_hash == _sha256(refresh_token)).first()
-    if row is not None:
+    if row is not None and (expected_client_type is None or row.client_type == expected_client_type):
         _revoke_family(db, row.family_id)
         db.commit()
 

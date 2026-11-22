@@ -151,6 +151,26 @@ class RecoveryTokenResponse(TokenResponse):
     recovery_code: str  # shown exactly once (admin CLI / recovery-code flow)
 
 
+class NativeTokenResponse(TokenResponse):
+    refresh_token: str
+
+
+class NativeRecoveryTokenResponse(RecoveryTokenResponse):
+    refresh_token: str
+
+
+class NativeRefreshRequest(_Strict):
+    refresh_token: str = Field(min_length=1, max_length=256)
+
+    @field_validator("refresh_token")
+    @classmethod
+    def clean_token(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Refresh token is required.")
+        return v
+
+
 class ChangePasswordRequest(_Strict):
     current_password: str = Field(max_length=128)
     new_password: str = Field(max_length=128)

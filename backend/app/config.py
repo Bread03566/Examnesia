@@ -39,6 +39,8 @@ class Settings(BaseSettings):
 
     # Web / auth
     ALLOWED_ORIGINS: str = "http://localhost:5173"  # comma-separated; never "*"
+    NATIVE_ORIGINS: str = "https://localhost,capacitor://localhost"  # Capacitor WebView origins (CORS only, not cookie CSRF)
+    MIN_NATIVE_VERSION_CODE: int = 0  # Android clients sending X-Kabisado-Client: android/<code < min> receive 426
     JWT_SECRET: str  # required; no default so a forgotten secret fails loudly
     JWT_SECRET_PREVIOUS: Optional[str] = None  # accepted for verification while rotating JWT_SECRET
     ACCESS_TOKEN_MINUTES: int = 15
@@ -75,16 +77,30 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()]
 
     @property
+    def native_origins(self) -> list[str]:
+        return [o.strip() for o in self.NATIVE_ORIGINS.split(",") if o.strip()]
+
+    @property
+    def cors_origins(self) -> list[str]:
+        seen = set()
+        combined = []
+        for origin in self.allowed_origins + self.native_origins:
+            if origin not in seen:
+                seen.add(origin)
+                combined.append(origin)
+        return combined
+
+    @property
     def refresh_cookie_name(self) -> str:
         # The __Host- prefix makes browsers insist on Secure + Path=/ and no Domain, so sibling
         # subdomains cannot overwrite it. It cannot be used over plain http (local dev).
         return "__Host-kabisado_rt" if self.COOKIE_SECURE else "kabisado_rt"
 
-    @field_validator("ALLOWED_ORIGINS")
+    @field_validator("ALLOWED_ORIGINS", "NATIVE_ORIGINS")
     @classmethod
     def no_wildcard_origin(cls, value: str) -> str:
         if "*" in value:
-            raise ValueError("ALLOWED_ORIGINS must list explicit origins, not '*'.")
+            raise ValueError("Origins must list explicit origins, not '*'.")
         return value
 
     @model_validator(mode="after")

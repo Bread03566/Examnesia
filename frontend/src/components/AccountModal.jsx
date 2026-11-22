@@ -1,9 +1,13 @@
 import React, { useState } from 'react';
-import { Download, Loader2 } from 'lucide-react';
+import { Download, Loader2, RefreshCw } from 'lucide-react';
 import Modal from './Modal';
 import PasswordField from './PasswordField';
+import ConsentPanel from './ConsentPanel';
+import UpdateModal from './UpdateModal';
 import authClient from '../services/authClient';
 import { changePassword, deactivateAccount, deleteAccount, exportMyData } from '../services/api';
+import { isNativePlatform } from '../platform/index';
+import { checkForAndroidUpdate } from '../platform/updater';
 
 /** Change password, deactivate, or delete the account. Each action re-asks for the current password. */
 export default function AccountModal({ user, onClose }) {
@@ -42,6 +46,9 @@ export default function AccountModal({ user, onClose }) {
   };
 
   const [exporting, setExporting] = useState(false);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [manualUpdateInfo, setManualUpdateInfo] = useState(null);
+
   const downloadData = async () => {
     setExporting(true);
     setError('');
@@ -51,6 +58,28 @@ export default function AccountModal({ user, onClose }) {
       setError(err.message || 'Could not download your data. Please try again.');
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleCheckUpdate = async () => {
+    setCheckingUpdate(true);
+    setError('');
+    setDone('');
+    try {
+      const res = await checkForAndroidUpdate({ force: true });
+      if (res.status === 'optional_update' || res.status === 'mandatory_update') {
+        setManualUpdateInfo(res);
+      } else if (res.status === 'up_to_date' || res.status === 'deferred') {
+        setDone('Your Kabisado app is up to date.');
+      } else if (res.status === 'incompatible_sdk') {
+        setError(`The latest update requires Android API ${res.minSdk || 24} or higher.`);
+      } else {
+        setError('Could not check for updates right now.');
+      }
+    } catch {
+      setError('Could not check for updates right now.');
+    } finally {
+      setCheckingUpdate(false);
     }
   };
 
@@ -64,15 +93,29 @@ export default function AccountModal({ user, onClose }) {
       subtitle={user.username.includes('@') ? user.username : `@${user.username}`}
       maxWidth="max-w-md"
     >
-      <button
-        type="button"
-        onClick={downloadData}
-        disabled={exporting}
-        className="w-full min-h-[40px] inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-      >
-        {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-        Download my data
-      </button>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <button
+          type="button"
+          onClick={downloadData}
+          disabled={exporting}
+          className="flex-1 min-h-[40px] inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+        >
+          {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+          Download my data
+        </button>
+
+        {isNativePlatform() && (
+          <button
+            type="button"
+            onClick={handleCheckUpdate}
+            disabled={checkingUpdate}
+            className="flex-1 min-h-[40px] inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            {checkingUpdate ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            Check for updates
+          </button>
+        )}
+      </div>
 
       <div role="tablist" className="mt-4 grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1">
         {tabs.map(([key, text]) => (
@@ -82,7 +125,7 @@ export default function AccountModal({ user, onClose }) {
             role="tab"
             aria-selected={action === key}
             onClick={() => { setAction(key); setError(''); setDone(''); }}
-            className={`rounded-lg px-2 py-2 text-xs font-bold transition ${
+            className={`rounded-lg px-1.5 sm:px-2 py-2 text-[11px] sm:text-xs leading-tight font-bold transition ${
               action === key ? 'bg-white text-amber-800 shadow-xs' : 'text-slate-600 hover:text-slate-900'
             }`}
           >
@@ -122,6 +165,12 @@ export default function AccountModal({ user, onClose }) {
           {tabs.find(([k]) => k === action)[1]}
         </button>
       </form>
+
+      <ConsentPanel />
+
+      {manualUpdateInfo && (
+        <UpdateModal updateInfo={manualUpdateInfo} onClose={() => setManualUpdateInfo(null)} />
+      )}
     </Modal>
   );
 }

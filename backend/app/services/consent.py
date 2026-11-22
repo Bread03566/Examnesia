@@ -67,16 +67,11 @@ def _within_budget(db: Session, user_id: int) -> bool:
 def _eligible(db: Session, user_id: Optional[int]) -> bool:
     if user_id is None:
         return False
-    override = system_status.get_gemini_override(db)
-    if override is False:
-        return False
-    if override is None and not settings.GEMINI_ENABLED:
+    if not system_status.is_gemini_enabled(db):
         return False
     user = db.get(User, user_id)
     if user is None or not user.is_active:
         return False
-    if override is True:
-        return True
     return bool(
         user.age_band == "adult" and user.gemini_consent
         and user.consent_policy_version == CURRENT_POLICY_VERSION

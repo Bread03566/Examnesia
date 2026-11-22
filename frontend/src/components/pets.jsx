@@ -338,7 +338,7 @@ export const ANIMALS = {
   owl: {
     name: 'Kabi the owl',
     emoji: '🦉',
-    sounds: ['Hoo! From huh? to gotcha!', 'Hoo-hoo! Wise choice to review.', '*sleepy hoot* keep going', 'Hoo! That topic again?'],
+    sounds: ['Hoo! Ready to review?', 'Hoo-hoo! Wise choice to review.', '*sleepy hoot* keep going', 'Hoo! That topic again?'],
     eyes: [{ cx: 46, cy: 52, r: 9 }, { cx: 74, cy: 52, r: 9 }],
     eyeWhite: '#FEF08A',
     iris: '#1E1E1E',

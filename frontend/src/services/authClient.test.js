@@ -214,3 +214,121 @@ describe("session lifecycle", () => {
     expect(cb).not.toHaveBeenCalled();
   });
 });
+
+describe("native (Android Capacitor) auth transport", () => {
+  let platform;
+  let keystore;
+
+  async function loadNative(handler) {
+    refreshCalls = 0;
+    fetchMock = vi.fn(async (url, options = {}) => {
+      if (String(url).endsWith("/api/auth/native/refresh")) refreshCalls += 1;
+      return handler(String(url), options);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.resetModules();
+    platform = await import("../platform/index.js");
+    platform.setPlatformOverride("native");
+    platform.setNativeClientVersionCode(10002);
+
+    const store = new Map();
+    keystore = {
+      store,
+      get: vi.fn(async ({ key }) => ({ value: store.get(key) || null })),
+      set: vi.fn(async ({ key, value }) => {
+        store.set(key, value);
+      }),
+      remove: vi.fn(async ({ key }) => {
+        store.delete(key);
+      }),
+    };
+    platform.registerNativeSecureStorage(keystore);
+    authClient = (await import("./authClient.js")).default;
+  }
+
+  it("logs in via /api/auth/native/login, stores refresh token in Keystore, and never touches localStorage/sessionStorage", async () => {
+    await loadNative((url, options) => {
+      expect(url).toBe("/api/auth/native/login");
+      expect(options.credentials).toBe("omit");
+      expect(options.headers["X-Kabisado-Client"]).toBe("android/10002");
+      return json(200, { access_token: "nat-acc-1", refresh_token: "nat-rt-1", user: USER });
+    });
+    await authClient.login({ email: "ana@gmail.com", password: "pw" });
+    expect(authClient.getAccessToken()).toBe("nat-acc-1");
+    expect(keystore.store.get("kabisado_refresh_token")).toBe("nat-rt-1");
+    expect(storage.local.setItem).not.toHaveBeenCalled();
+    expect(storage.session.setItem).not.toHaveBeenCalled();
+  });
+
+  it("rotates the refresh token in Keystore on 401 and shares one single-flight native refresh", async () => {
+    await loadNative(async (url, options) => {
+      if (url.endsWith("/api/auth/native/login")) {
+        return json(200, { access_token: "nat-old", refresh_token: "nat-rt-1", user: USER });
+      }
+      if (url.endsWith("/api/auth/native/refresh")) {
+        expect(JSON.parse(options.body)).toEqual({ refresh_token: "nat-rt-1" });
+        await new Promise((r) => setTimeout(r, 15));
+        return json(200, { access_token: "nat-new", refresh_token: "nat-rt-2", user: USER });
+      }
+      return options.headers.Authorization === "Bearer nat-new" ? json(200, ["ok"]) : json(401);
+    });
+    await authClient.login({ email: "ana@gmail.com", password: "pw" });
+    const results = await Promise.all(Array.from({ length: 4 }, () => authClient.authFetch("/api/documents")));
+    expect(results.map((r) => r.status)).toEqual([200, 200, 200, 200]);
+    expect(refreshCalls).toBe(1);
+    expect(keystore.store.get("kabisado_refresh_token")).toBe("nat-rt-2");
+    expect(authClient.getAccessToken()).toBe("nat-new");
+  });
+
+  it("wipes Keystore token and clears session when /api/auth/native/refresh returns 401 during authFetch", async () => {
+    await loadNative((url) => {
+      if (url.endsWith("/api/auth/native/login")) {
+        return json(200, { access_token: "nat-acc", refresh_token: "nat-rt-1", user: USER });
+      }
+      return json(401, { detail: "expired" });
+    });
+    const seen = [];
+    authClient.onAuthChange((u) => seen.push(u));
+    await authClient.login({ email: "ana@gmail.com", password: "pw" });
+    expect(keystore.store.get("kabisado_refresh_token")).toBe("nat-rt-1");
+
+    const res = await authClient.authFetch("/api/documents");
+    expect(res.status).toBe(401);
+    expect(refreshCalls).toBe(1);
+    expect(keystore.store.has("kabisado_refresh_token")).toBe(false);
+    expect(authClient.getAccessToken()).toBeNull();
+    expect(seen.at(-1)).toBeNull();
+  });
+
+  it("logout clears Keystore token and posts to /api/auth/native/logout", async () => {
+    await loadNative((url) => {
+      if (url.endsWith("/api/auth/native/login")) {
+        return json(200, { access_token: "nat-acc", refresh_token: "nat-rt-1", user: USER });
+      }
+      if (url.endsWith("/api/auth/native/logout")) {
+        return json(204);
+      }
+      return json(401, { detail: "expired" });
+    });
+    await authClient.login({ email: "ana@gmail.com", password: "pw" });
+    await authClient.logout();
+    expect(keystore.store.has("kabisado_refresh_token")).toBe(false);
+    expect(authClient.getAccessToken()).toBeNull();
+    const logoutCall = fetchMock.mock.calls.find(([u]) => u.endsWith("/api/auth/native/logout"));
+    expect(logoutCall).toBeTruthy();
+    expect(JSON.parse(logoutCall[1].body)).toEqual({ refresh_token: "nat-rt-1" });
+  });
+
+  it("notifies upgrade listeners when the server returns 426 Upgrade Required", async () => {
+    await loadNative(() =>
+      json(426, { detail: "Please update the Kabisado app to continue.", code: "UPGRADE_REQUIRED", min_version_code: 20000 })
+    );
+    const seen = [];
+    const off = platform.onUpgradeRequired((payload) => seen.push(payload));
+    const res = await authClient.authFetch("/api/documents");
+    off();
+    expect(res.status).toBe(426);
+    expect(seen).toHaveLength(1);
+    expect(seen[0].code).toBe("UPGRADE_REQUIRED");
+  });
+});

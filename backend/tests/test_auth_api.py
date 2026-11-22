@@ -293,3 +293,130 @@ def test_me_requires_a_valid_bearer_token(client):
     assert client.get("/api/auth/me", headers={"Authorization": "Bearer nope"}).status_code == 401
     me = client.get("/api/auth/me", headers=headers)
     assert me.status_code == 200 and me.json()["username"] == e and "password" not in me.text
+
+
+# ---------- native Android auth ----------
+def test_native_register_login_refresh_and_logout_never_set_cookies(client):
+    email = unique_email("nat")
+    reg = client.post("/api/auth/native/register", json=body(email))
+    assert reg.status_code == 201
+    assert "set-cookie" not in reg.headers
+    reg_data = reg.json()
+    assert reg_data["access_token"] and reg_data["refresh_token"] and reg_data["user"]["username"] == email
+
+    log = client.post("/api/auth/native/login", json={"email": email, "password": STRONG_PASSWORD})
+    assert log.status_code == 200 and "set-cookie" not in log.headers
+    rt1 = log.json()["refresh_token"]
+
+    ref = client.post("/api/auth/native/refresh", json={"refresh_token": rt1})
+    assert ref.status_code == 200 and "set-cookie" not in ref.headers
+    rt2 = ref.json()["refresh_token"]
+    assert rt2 != rt1 and ref.json()["access_token"]
+
+    # Native refresh token cannot be used on the web cookie refresh endpoint, and vice versa
+    assert post_refresh(client, rt2, Origin="http://localhost:5173").status_code == 401
+    # And NATIVE_ORIGINS ("https://localhost") is rejected by the web cookie CSRF Origin check
+    web_cookie = refresh_cookie_value(client.post("/api/auth/login", json={"email": email, "password": STRONG_PASSWORD}))
+    assert post_refresh(client, web_cookie, Origin="https://localhost").status_code == 403
+    assert client.post("/api/auth/native/refresh", json={"refresh_token": web_cookie}).status_code == 401
+
+    out = client.post("/api/auth/native/logout", json={"refresh_token": rt2})
+    assert out.status_code == 204 and "set-cookie" not in out.headers
+    assert client.post("/api/auth/native/refresh", json={"refresh_token": rt2}).status_code == 401
+
+
+def test_native_reset_password_and_recover_return_refresh_token_without_cookies(client, captured_emails):
+    email = unique_email("natreset")
+    assert client.post("/api/auth/native/register", json=body(email)).status_code == 201
+    assert client.post("/api/auth/forgot-password", json={"email": email}).status_code == 200
+    code = captured_emails[0]["code"]
+
+    res = client.post("/api/auth/native/reset-password", json={
+        "email": email, "code": code, "new_password": "Brand-New-Pass-77", "confirm_password": "Brand-New-Pass-77",
+    })
+    assert res.status_code == 200 and "set-cookie" not in res.headers
+    assert res.json()["access_token"] and res.json()["refresh_token"]
+
+    adm = unique_username("natadm")
+    with SessionLocal() as db:
+        rec_code = cli.create_admin(db, adm, "Admin", STRONG_PASSWORD)
+    adm_res = client.post("/api/auth/native/recover", json={
+        "username": adm, "recovery_code": rec_code, "new_password": "Brand-New-Pass-77", "confirm_password": "Brand-New-Pass-77",
+    })
+    assert adm_res.status_code == 200 and "set-cookie" not in adm_res.headers
+    assert adm_res.json()["access_token"] and adm_res.json()["refresh_token"] and adm_res.json()["recovery_code"] != rec_code
+
+
+def test_cross_platform_bidirectional_web_and_android_workflow(client):
+    """Phase 3 requirement: upload on Web -> visible on Android; study on Android -> visible on Web."""
+    email = unique_email("xplat")
+    # 1. Student registers on Web and creates a module with flashcards and quiz questions
+    web_reg = client.post("/api/auth/register", json=body(email))
+    assert web_reg.status_code == 201
+    web_headers = {"Authorization": f"Bearer {web_reg.json()['access_token']}"}
+
+    doc_res = client.post(
+        "/api/documents/text",
+        headers=web_headers,
+        json={
+            "title": "Cell Biology 101",
+            "text": (
+                "Mitosis is defined as the process of cell division that results in two identical daughter cells. "
+                "Meiosis refers to a type of cell division that reduces the chromosome number by half in gametes. "
+                "Ribosomes are the cellular structures responsible for protein synthesis in all living cells. "
+                "Mitochondria are known as the powerhouses of the cell because they generate adenosine triphosphate. "
+                "Chloroplasts are the specialized organelles in plant cells that conduct photosynthesis using sunlight. "
+                "Osmosis is defined as the spontaneous net movement of solvent molecules through a selectively permeable membrane."
+            ),
+        },
+    )
+    assert doc_res.status_code == 201
+    doc_id = doc_res.json()["id"]
+
+    cards_res = client.post(f"/api/documents/{doc_id}/flashcards/generate", headers=web_headers, json={"count": 3})
+    assert cards_res.status_code == 200 and len(cards_res.json()) >= 1
+    card_id = cards_res.json()[0]["id"]
+
+    quiz_res = client.post(f"/api/documents/{doc_id}/quiz/generate", headers=web_headers, json={"count": 2})
+    assert quiz_res.status_code == 200 and len(quiz_res.json()) >= 1
+    q = quiz_res.json()[0]
+
+    # 2. Same student signs in on Native Android and sees the module uploaded on Web
+    nat_login = client.post(
+        "/api/auth/native/login",
+        headers={"X-Kabisado-Client": "android/10000"},
+        json={"email": email, "password": STRONG_PASSWORD},
+    )
+    assert nat_login.status_code == 200 and "set-cookie" not in nat_login.headers
+    nat_headers = {
+        "Authorization": f"Bearer {nat_login.json()['access_token']}",
+        "X-Kabisado-Client": "android/10000",
+    }
+
+    nat_docs = client.get("/api/documents", headers=nat_headers)
+    assert nat_docs.status_code == 200
+    assert [d["id"] for d in nat_docs.json()] == [doc_id]
+
+    # 3. Student reviews a flashcard and completes a quiz on Android
+    rev_res = client.post(f"/api/flashcards/{card_id}/review", headers=nat_headers, json={"rating": "easy"})
+    assert rev_res.status_code == 200
+
+    sub_res = client.post(
+        "/api/quizzes/submit",
+        headers=nat_headers,
+        json={
+            "document_id": doc_id,
+            "difficulty": "medium",
+            "answers": [{"question_id": q["id"], "selected_index": q["correct_index"]}],
+        },
+    )
+    assert sub_res.status_code == 200 and sub_res.json()["score"] == 1
+
+    # 4. Back on Web, the student checks their Progress Dashboard and sees the Android activity
+    dash_res = client.get("/api/progress/dashboard?tz_offset_minutes=0", headers=web_headers)
+    assert dash_res.status_code == 200
+    dash = dash_res.json()
+    assert dash["total_quizzes_taken"] == 1
+    assert dash["overall_accuracy"] == 100.0
+    assert dash["streak_days"] >= 1
+    assert len(dash["quiz_history"]) == 1

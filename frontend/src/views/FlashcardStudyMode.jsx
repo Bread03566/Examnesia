@@ -27,6 +27,7 @@ import {
   getDueFlashcards
 } from '../services/api';
 import { usePetEmoji } from '../components/pets';
+import { speech } from '../platform/index';
 
 export default function FlashcardStudyMode({ 
   documentId, 
@@ -58,12 +59,10 @@ export default function FlashcardStudyMode({
 
   const speakText = (text, e) => {
     e?.stopPropagation();
-    if (!window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.0;
-    window.speechSynthesis.speak(utterance);
+    speech.speakText(text, { rate: 1.0 });
   };
+
+  useEffect(() => () => speech.cancelSpeech(), []);
 
   const loadCards = useCallback(async () => {
     setIsLoading(true);

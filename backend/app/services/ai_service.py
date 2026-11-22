@@ -168,7 +168,11 @@ class AIService:
 
     def is_api_configured(self) -> bool:
         # Checked on every call, not just at startup, so the switch holds even if a client exists.
-        return system_status.is_gemini_enabled() and self.client is not None
+        if not system_status.is_gemini_enabled():
+            return False
+        if self.client is None:
+            self.sync_client()
+        return self.client is not None
 
     def may_use_gemini(self, user_id: Optional[int]) -> bool:
         """Engine choice for one student: Gemini only if it is configured AND this student has consented."""

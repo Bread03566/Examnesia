@@ -41,7 +41,7 @@ export default function Navbar({ activeTab, onSelectTab, currentDoc }) {
   return (
     <>
       {/* Top Bar */}
-      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200">
+      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200 pt-[env(safe-area-inset-top)]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 md:h-16 flex items-center justify-between gap-3">
           {/* Brand & Mascot */}
           <button
@@ -59,9 +59,6 @@ export default function Navbar({ activeTab, onSelectTab, currentDoc }) {
                   Study Companion
                 </span>
               </div>
-              <p className="hidden lg:block text-[11px] font-medium text-slate-500 leading-tight">
-                From huh? to gotcha!
-              </p>
             </div>
           </button>
 

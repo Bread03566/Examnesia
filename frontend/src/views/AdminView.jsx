@@ -384,7 +384,7 @@ export default function AdminView({ showToast }) {
         title={pendingGemini ? 'Turn on Gemini AI?' : 'Turn off Gemini AI?'}
         message={
           pendingGemini
-            ? 'Enabling Gemini AI allows Kabisado to send study prompts to Google Gemini for summaries, flashcards, quizzes, and chat.'
+            ? 'Enabling Gemini AI makes the feature available on this site. Only students who independently confirm they are 18+ and grant consent will have their study prompts sent to Google Gemini.'
             : 'Disabling Gemini AI switches the entire site back to the built-in offline study engine immediately.'
         }
         confirmLabel={pendingGemini ? 'Turn on Gemini AI' : 'Turn off Gemini AI'}

@@ -15,6 +15,12 @@ PUBLIC = {
     ("POST", "/api/auth/refresh"),   # cookie + header + origin checks
     ("POST", "/api/auth/logout"),    # cookie based
     ("POST", "/api/auth/recover"),   # admin username + recovery code
+    ("POST", "/api/auth/native/register"),        # native Android auth (body refresh token, no cookie)
+    ("POST", "/api/auth/native/login"),           # native Android auth
+    ("POST", "/api/auth/native/reset-password"),  # native Android password reset
+    ("POST", "/api/auth/native/recover"),         # native Android recovery-code fallback
+    ("POST", "/api/auth/native/refresh"),         # native Android rotating refresh token
+    ("POST", "/api/auth/native/logout"),          # native Android session revocation
 }
 
 

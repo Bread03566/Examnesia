@@ -6,10 +6,11 @@ Budget rule: **₱0/month, free tiers only.** Never add a card, start a trial, o
 
 | Piece | Service | Notes |
 |---|---|---|
-| API + built React app | Render Free web service (Docker, built from the repo root) | Same origin, so the login cookie is first-party. Sleeps after about 15 minutes idle. |
-| Database | Supabase Free Postgres (**session pooler**, port 5432) | The direct host is IPv6-only and does not work from Render. |
-| Wake-up page | GitHub Pages | A static page that wakes the API, then redirects to it. |
-| Gemini | **Off** (`GEMINI_ENABLED=false`) | Hard kill switch. Do not enable until the billing setup is verified and Google's terms and age restrictions have been reviewed. |
+| API + built React web app | Render Free web service (Docker, built from the repo root) | Same origin, so the web login cookie is first-party. Sleeps after about 15 minutes idle. |
+| Database | Supabase Free Postgres (**session pooler**, port 5432) | The direct host is IPv6-only and does not work from Render. Shared by both Web and Android. |
+| Public landing page, privacy policy & APK release manifest | GitHub Pages (`wake/`) | Hosts the product landing page, `./privacy.html`, `./release/latest.json` (+ `latest.json.sig`), and the interactive wake-up modal for the Render instance. |
+| Android APK downloads | GitHub Releases | Hosts signed release `.apk` assets (`com.kabisado.app`) referenced by `wake/release/latest.json`. |
+| Gemini | **Off by default** (`GEMINI_ENABLED=false`) | Hard kill switch. Even when enabled via env var or the Admin Console, each student must independently confirm they are 18+ and grant consent. |
 
 ## Secrets: where they live
 
@@ -64,18 +65,17 @@ Nobody is signed out during the rotation. To sign **everyone** out (suspected le
 ## Data retention
 
 - Login and session metadata: deleted after 30 days (privacy notice promises this).
-- Study content: kept until the student deletes their account (Account → Burahin ang account), which removes the user and everything attached.
+- Study content: kept until the student deletes their account (Account → Delete account), which removes the user and everything attached.
 - Throttle rows for failed logins use a hash of the username and IP, not the raw values.
 
 ## Known limits (honest list)
 
 - **Free-tier sleep:** the first request after idle can take up to about a minute. The Pages wake-up page exists for this.
 - **Latency:** the database is far from Render (see the Phase 0 report: roughly a quarter of a second per query), so the API keeps a small connection pool and keeps round trips per request low. Expect a login to be noticeably slower than a list request (the password hash plus several queries); measure it with the verification script rather than trusting an estimate.
-- **No managed backups yet.** Supabase Free does not include them; scheduled encrypted backups are a later phase. Until then, the database is the only copy of student data.
-- **Original uploaded files are not stored durably.** The extracted text is in the database; the file itself lives on Render's disk, which is wiped on every restart. Durable storage (Supabase Storage) is a later phase.
-- **Gemini is off**, so summaries, flashcards and quizzes come from the offline engine. The consent screen and consent log are not built yet; they must exist before Gemini is switched on.
-- **No admin dashboard yet.** `/api/admin/ping` only proves role enforcement.
-- **A lost password and lost recovery code cannot be recovered.** There is no email or phone, and admins cannot reset a student's password.
+- **Backups require one-time GitHub Secrets setup.** Supabase Free does not include managed backups; configure `AGE_PUBLIC_KEY` and `BACKUP_DATABASE_URL` so `.github/workflows/backup.yml` runs nightly encrypted backups (see "Backups and keep-alive" below).
+- **Original uploaded files are not stored.** The extracted text is in the database; the original PDF/DOCX is discarded right after text extraction (see "What is stored from uploads" below).
+- **Gemini is off by default**, so summaries, flashcards, quizzes, and chat come from the offline engine unless Gemini is enabled on the server (`GEMINI_ENABLED=true` or enabled by an admin in the Admin Console with `GEMINI_API_KEY` set) **and** the individual student confirms they are 18+ and grants consent in the Consent Panel. Enabling Gemini as an admin only makes the feature available site-wide; it never bypasses per-student consent.
+- **Password recovery:** Students register with `@gmail.com` and recover forgotten passwords via a 6-digit Gmail SMTP reset code (`SMTP_USERNAME` and `SMTP_PASSWORD` configured in Render). CLI-created admin accounts recover via their one-time recovery code (`POST /api/auth/recover`).
 - Render and Supabase may change their free-tier terms. Re-check the limits before relying on them.
 
 ## Verifying a deployment
@@ -107,9 +107,7 @@ By hand (a script cannot do these):
 
 ## Admin dashboard (v1)
 
-Sign in with an admin account and an **Admin** tab appears. It shows account and content counts, a searchable student list (account details only, never study content), **Deactivate / Reactivate** buttons, and an audit log of every change. Admins cannot be deactivated from here, and nobody can deactivate their own account here. Deactivating signs the student out everywhere immediately.
-
-Not in v1 (later phases): free-tier usage and backup-age warnings, reported items, settings. The Gemini switch stays an environment variable only.
+Sign in with an admin account and an **Admin** tab appears. It shows account and content counts, system status (database size, text storage quota, backup age warning, and the site-wide Gemini AI master switch), a searchable student list (account details only, never study content), **Deactivate / Reactivate** buttons, and an audit log of every change. Admins cannot be deactivated from here, and nobody can deactivate their own account here. Deactivating signs the student out everywhere immediately. Turning Gemini AI on in the Admin Console only makes the feature available site-wide (when `GEMINI_API_KEY` is configured); each student must still independently confirm they are 18+ and grant consent before their content can be sent to Google.
 
 ### Releasing a version that adds a migration
 
@@ -140,7 +138,7 @@ The original PDF/DOCX is **discarded** right after its text is extracted (Render
 
 ## Gemini consent (Phase 4)
 
-Gemini stays **off** unless `GEMINI_ENABLED=true` *and* a key is set, and even then each student must opt in (18+ self-declaration, plain-language disclosure, logged). The gate (`app/services/consent.py`) re-reads the student's consent from the database before **every** request to Google, including retries and fallback models, so turning it off takes effect on the next request. It fails closed: unknown student, inactive account, stale policy version, or an exhausted daily budget (`GEMINI_USER_DAILY_CALLS` default 30 per student, `GEMINI_GLOBAL_DAILY_CALLS` default 300 for the site) all fall back to the offline engine. Only `ai_service.py` may import Google's client, and a test enforces that.
+Gemini stays **off** unless enabled on the site (`GEMINI_ENABLED=true` or turned on in the Admin Console) *and* `GEMINI_API_KEY` is set, and even then each student must independently opt in (18+ self-declaration, plain-language disclosure, logged). The gate (`app/services/consent.py`) re-reads the student's consent from the database before **every** request to Google, including retries and fallback models, so turning it off takes effect on the next request. It fails closed: unknown student, inactive account, stale policy version, or an exhausted daily budget (`GEMINI_USER_DAILY_CALLS` default 30 per student, `GEMINI_GLOBAL_DAILY_CALLS` default 300 for the site) all fall back to the offline engine. Only `ai_service.py` may import Google's client, and a test enforces that.
 
 Bumping `CURRENT_POLICY_VERSION` makes everyone's consent lapse until they accept the new notice.
 
@@ -148,4 +146,95 @@ The consent log is hash-chained per student. Check it with `python -m app.cli ve
 
 Before enabling Gemini you must personally confirm that the key's Google project has no billing account, and review Google's terms and the under-18 restriction. A request already sent when someone withdraws may complete (at most one 60-second call), and sent content cannot be recalled.
 
-This release includes migration `0004`: follow "Releasing a version that adds a migration" above.
+When releasing a version that adds a new migration (currently `0001` through `0007`), follow "Releasing a version that adds a migration" above.
+
+### Rolling back migration `0007_session_client_type`
+
+Migration `0007` adds `sessions.client_type VARCHAR(10) NOT NULL DEFAULT 'web'` with `CHECK (client_type IN ('web', 'native'))`. Because `ensure_schema()` refuses to boot if the database revision differs from the code's expected Alembic head, roll back in reverse order:
+
+1. Re-pin or deploy the previous application image (expecting revision `0006`).
+2. Run `alembic downgrade 0006` against the production database.
+3. Verify `alembic current` reports `0006` and restart the Render service. (If rolling back due to a session/security incident, also run `DELETE FROM sessions;` to revoke all active refresh sessions.)
+
+---
+
+## Android APK release, local signing & update system (Phases 4–6)
+
+### 1. Prerequisites for local Android builds
+- **JDK 21** (e.g., Eclipse Temurin 21) and the **Android SDK** (API 36 platform + build-tools).
+- For a cloud debug build without local JDK/SDK installed, trigger `.github/workflows/android-build.yml` ("Build Android Debug APK") in GitHub Actions and download the `kabisado-debug-apk` artifact.
+
+### 2. One-time key generation (keep outside the repository!)
+Two separate private keys are used and must **never** be committed to git (both are blocked by `.gitignore` and `release_tool.py`):
+
+1. **Android APK Release Keystore** (signs the `.apk` binary; must stay identical across every future update so Android permits in-place upgrades):
+   ```bash
+   keytool -genkeypair -v -keystore ~/kabisado-keys/kabisado-release.jks -keyalg RSA -keysize 4096 -validity 10000 -alias kabisado
+   ```
+   Back up `kabisado-release.jks` and its passwords in two offline locations plus your password manager. Create `frontend/android/key.properties` (git-ignored) pointing to it:
+   ```properties
+   storeFile=/absolute/path/to/kabisado-release.jks
+   storePassword=YOUR_STORE_PASSWORD
+   keyAlias=kabisado
+   keyPassword=YOUR_KEY_PASSWORD
+   ```
+   Read your APK signing certificate's 64-character hex SHA-256 fingerprint once:
+   ```bash
+   keytool -list -v -keystore ~/kabisado-keys/kabisado-release.jks -alias kabisado
+   ```
+
+2. **Ed25519 Release Manifest Signing Key** (separate from the APK keystore; signs `wake/release/latest.json` → `wake/release/latest.json.sig`):
+   ```bash
+   cd backend
+   python scripts/release_tool.py generate-key --out-private ~/kabisado-keys/manifest-ed25519.key
+   ```
+   Store `manifest-ed25519.key` in your password manager and set the printed 64-hex public key as `VITE_RELEASE_PUBLIC_KEY` when building the native bundle.
+
+### 3. Versioning scheme
+- Application ID: `com.kabisado.app` (permanent).
+- `versionName`: `MAJOR.MINOR.PATCH` (e.g. `1.0.0`).
+- `versionCode`: `MAJOR * 10000 + MINOR * 100 + PATCH` (e.g. `1.0.0` → `10000`, `1.0.1` → `10001`). Every release must strictly increase `versionCode`.
+
+### 4. Building, signing & publishing a release APK
+1. Update `versionName` and `versionCode` in `frontend/android/app/build.gradle`.
+2. Build the native frontend bundle and sync Capacitor:
+   ```bash
+   cd frontend
+   VITE_API_BASE="https://<your-service>.onrender.com" \
+   VITE_RELEASE_MANIFEST_URL="https://<your-user>.github.io/<repo>/release/latest.json" \
+   VITE_RELEASE_PUBLIC_KEY="<64-hex-ed25519-public-key>" \
+   npm run cap:sync
+   ```
+3. Build and sign the release APK locally:
+   ```bash
+   cd frontend/android
+   ./gradlew assembleRelease
+   ```
+   Verify the APK signature with `apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk`.
+4. Upload the signed APK (`kabisado-<versionName>-<versionCode>.apk`) to a new **GitHub Release** tag (e.g., `v1.0.0`).
+5. Generate and sign `wake/release/latest.json` and `wake/release/latest.json.sig`:
+   ```bash
+   cd backend
+   python scripts/release_tool.py prepare-release \
+     --apk ../frontend/android/app/build/outputs/apk/release/app-release.apk \
+     --version-name 1.0.0 \
+     --apk-url "https://github.com/<owner>/<repo>/releases/download/v1.0.0/kabisado-1.0.0-10000.apk" \
+     --signing-cert-sha256 "<64-hex-apk-cert-sha256>" \
+     --private-key-file ~/kabisado-keys/manifest-ed25519.key \
+     --note "Initial signed Android release."
+   python scripts/release_tool.py verify-release --public-key "<64-hex-ed25519-public-key>"
+   ```
+6. Commit `wake/release/latest.json` and `wake/release/latest.json.sig` and push to `main`. GitHub Actions (`.github/workflows/deploy.yml`) publishes the updated landing page and release metadata to GitHub Pages.
+
+### 5. What reaches users via which update type
+
+| Change | How it reaches users |
+|---|---|
+| Web frontend UI change | Render deploy (updates the website immediately) |
+| Bundled Android UI or native plugin/permission change | New signed APK published to GitHub Releases + updated `latest.json` / `latest.json.sig` |
+| Compatible backend/API change | Render deploy (reaches both Web and Android immediately without a new APK) |
+| Breaking backend/API change | Raise `MIN_NATIVE_VERSION_CODE` on Render (returns `426 Upgrade Required` to older Android builds) and set `min_supported_version_code` in `latest.json` |
+
+### 6. Android developer verification & distribution limits
+- **Free Limited Distribution Account (₱0/month):** Google's Android developer verification requirement for sideloaded APKs (live in BR/ID/SG/TH since 30 Sep 2026; expanding globally from 2027) provides a free **Limited Distribution Account** in the **Android Developer Console** (no registration fee, no government ID; requires a Google Account with 2-Step Verification and a linked Google Payments profile for name/address verification only). It is capped at **50 authorized devices** via QR/link authorization.
+- **Future public distribution:** Because `com.kabisado.app` and your local release keystore are fixed from v1, you can register the same package ID and signing key later in either the free Limited Distribution Account (up to 50 devices) or a commercial developer account (only with explicit owner approval) without redesigning the application or database.

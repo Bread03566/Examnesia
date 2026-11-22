@@ -20,6 +20,7 @@ import Mascot from '../components/Mascot';
 import FlagModal from '../components/FlagModal';
 import QuestionBody, { QUESTION_TYPE_LABELS } from '../components/QuestionBody';
 import { getQuestions, generateQuiz, submitQuizAttempt, generateWeakSpotQuiz, checkAnswer } from '../services/api';
+import { speech } from '../platform/index';
 
 const QUESTION_TYPES = [
   { id: 'mixed', label: 'Mixed', hint: 'A bit of everything' },
@@ -229,12 +230,10 @@ export default function QuizMode({
 
   // Voice Mode: Read question aloud (Phase 4)
   const speakQuestion = (text) => {
-    if (!window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.0;
-    window.speechSynthesis.speak(utterance);
+    speech.speakText(text, { rate: 1.0 });
   };
+
+  useEffect(() => () => speech.cancelSpeech(), []);
 
   const currentQ = questions[currentIndex];
   const hasAnsweredCurrent = currentQ ? answers[currentQ.id] !== undefined : false;
@@ -249,8 +248,8 @@ export default function QuizMode({
   return (
     <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
       {/* Top Header */}
-      <div className="flex items-center justify-between pb-4 border-b border-slate-200">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-slate-200">
+        <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={onBack}
             className="p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition"
@@ -300,7 +299,7 @@ export default function QuizMode({
         </div>
       ) : questions.length === 0 ? (
         /* Setup / Configuration Form */
-        <div className="bg-white rounded-3xl border border-slate-200 p-8 sm:p-12 text-center flex flex-col items-center justify-center space-y-6 shadow-sm">
+        <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-12 text-center flex flex-col items-center justify-center space-y-6 shadow-sm">
           <Mascot mood="sleepy" size="lg" />
           <div className="max-w-md space-y-1">
             <h2 className="text-xl font-extrabold text-slate-900">
@@ -358,7 +357,7 @@ export default function QuizMode({
 
             <fieldset>
               <legend className="block text-xs font-bold text-slate-700 mb-1.5">Question style:</legend>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 {QUESTION_STYLES.map((s) => (
                   <button
                     key={s.id}
@@ -387,7 +386,7 @@ export default function QuizMode({
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
                 Difficulty:
               </label>
-              <div className="grid grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {[
                   { id: 'easy', label: 'Easy' },
                   { id: 'medium', label: 'Medium' },
@@ -488,7 +487,7 @@ export default function QuizMode({
       ) : quizResult ? (
         /* QUIZ SCORE REPORT & RESULTS */
         <div className="space-y-6 animate-in zoom-in-95">
-          <div className="bg-white rounded-3xl border border-slate-200 p-8 sm:p-10 text-center shadow-lg space-y-4">
+          <div className="bg-white rounded-3xl border border-slate-200 p-5 sm:p-10 text-center shadow-lg space-y-4">
             <Mascot 
               mood={quizResult.percentage >= 80 ? "happy" : quizResult.percentage >= 50 ? "studying" : "shocked"} 
               size="xl" 
@@ -648,7 +647,7 @@ export default function QuizMode({
 
           {/* Question Card */}
           <div key={currentQ?.id} className="animate-in fade-in slide-in-from-right-4 bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-md space-y-6">
-            <div className="flex items-center justify-between text-xs text-slate-400">
+            <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs text-slate-400">
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
                   {QUESTION_TYPE_LABELS[currentQ?.question_type] || QUESTION_TYPE_LABELS.multiple_choice}
